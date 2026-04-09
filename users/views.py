@@ -1,8 +1,8 @@
 from django.contrib.auth.models import Group
 from users.models import User
-from rest_framework import permissions, viewsets
-
+from rest_framework import viewsets
 from .serializers import GroupSerializer, UserSerializer
+from users.permissions import IsAdmin
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -12,7 +12,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserSerializer
-    # permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdmin]
 
 
 class GroupViewSet(viewsets.ModelViewSet):
@@ -22,4 +22,4 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     queryset = Group.objects.all().order_by("name")
     serializer_class = GroupSerializer
-    # permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdmin]
