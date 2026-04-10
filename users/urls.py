@@ -10,6 +10,7 @@ users_router.register(r"groups", views.GroupViewSet)
 
 urlpatterns = [
     path("", include(users_router.urls)),
-    path('auth/token', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/login', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/logout', views.LogoutView.as_view(), name='logout'),
 ]
