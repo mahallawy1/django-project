@@ -11,14 +11,23 @@ class Doctor(models.Model):
         return self.name
     
 class DoctorSchedule(models.Model):
+    class DayOfWeek(models.IntegerChoices):
+        SATURDAY = 0, 'Saturday'
+        SUNDAY = 1, 'Sunday'
+        MONDAY = 2, 'Monday'
+        TUESDAY = 3, 'Tuesday'
+        WEDNESDAY = 4, 'Wednesday'
+        THURSDAY = 5, 'Thursday'
+        FRIDAY = 6, 'Friday'
+
     id = models.AutoField(primary_key=True)
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE)
-    day_of_week = models.IntegerChoices(choices=[(0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'), (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday')])
+    day_of_week = models.IntegerField(choices=DayOfWeek.choices)
     start_time = models.TimeField()
     end_time = models.TimeField()
 
     def __str__(self):
-        return f"{self.doctor.name} - {self.date} {self.start_time} to {self.end_time}"
+        return f"{self.doctor.name} - {self.get_day_of_week_display()} {self.start_time} to {self.end_time}"
     
 
 class DoctorException(models.Model):
