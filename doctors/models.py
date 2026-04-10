@@ -2,7 +2,7 @@ from django.db import models
 
 # Create your models here.
 class Doctor(models.Model):
-    user_id = models.IntegerField(primary_key=True)
+    user_id = models.ForeignKey('users.User', on_delete=models.CASCADE)
     specialization = models.CharField(max_length=100)
     session_duration = models.IntegerField(choices=[(15, '15 minutes'), (30, '30 minutes')])
     buffer_time = models.IntegerField(choices=[(5, '5 minutes'), (10, '10 minutes')])
