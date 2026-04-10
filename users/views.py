@@ -6,7 +6,8 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import GroupSerializer, UserSerializer
 from users.permissions import IsAdmin
-
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -16,6 +17,9 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ["role", "is_active"]
+    search_fields = ["username", "first_name", "last_name", "email"]
 
 
 class GroupViewSet(viewsets.ModelViewSet):
