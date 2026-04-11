@@ -26,16 +26,29 @@ def get_all_doctors(request):
     return Response({'status': 'success', 'doctors': doctor_list})
 
 
-
-@api_view(['POST', 'PATCH', 'DELETE'])
-def set_doctor_schedule(request, doctor_id):
-    return Response({'status': 'error', 'message': 'Deprecated endpoint'}, status=410)
-
-
-@api_view(['POST'])
+@api_view(['GET', 'POST', 'DELETE'])
 def create_doctor_availability(request, doctor_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
+
+    if request.method == 'DELETE':
+        deleted_count, _ = DoctorSchedule.objects.filter(doctor_id=doctor_id).delete()
+        if deleted_count == 0:
+            return Response({'status': 'error', 'message': 'No availabilities found for this doctor'}, status=404)
+        return Response({'status': 'success', 'message': 'All availabilities deleted successfully'})
+
+    if request.method == 'GET':
+        schedules = DoctorSchedule.objects.filter(doctor_id=doctor_id)
+        schedule_list = [
+            {
+                'id': schedule.id,
+                'day_of_week': schedule.day_of_week,
+                'start_time': schedule.start_time,
+                'end_time': schedule.end_time,
+            }
+            for schedule in schedules
+        ]
+        return Response({'status': 'success', 'availabilities': schedule_list})
 
     serializer = CreateAvailabilityRequestSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -47,21 +60,14 @@ def create_doctor_availability(request, doctor_id):
             similar_weekdays=payload['similar_weekdays'],
             availability_items=payload['availability'],
         )
-        create_exceptions(doctor_id=doctor_id, exceptions_items=payload.get('exceptions', []))
 
     return Response({'status': 'success', 'message': 'Availability created successfully'})
 
 
-@api_view(['PATCH', 'DELETE'])
+@api_view(['PATCH'])
 def availability_detail(request, doctor_id, availability_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
-
-    if request.method == 'DELETE':
-        deleted_count, _ = DoctorSchedule.objects.filter(id=availability_id, doctor_id=doctor_id).delete()
-        if deleted_count == 0:
-            return Response({'status': 'error', 'message': 'Availability not found'}, status=404)
-        return Response({'status': 'success', 'message': 'Availability deleted successfully'})
 
     serializer = PatchAvailabilityRequestSerializer(data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
@@ -74,19 +80,16 @@ def availability_detail(request, doctor_id, availability_id):
             availability_items=payload.get('availability'),
         )
 
-        if any(field in payload for field in ('day_of_week', 'start_time', 'end_time')):
+        if any(field in payload for field in ('start_time', 'end_time')):
             _, error = patch_single_availability(
                 doctor_id=doctor_id,
                 availability_id=availability_id,
-                day_of_week=payload.get('day_of_week'),
                 start_time=payload.get('start_time'),
                 end_time=payload.get('end_time'),
             )
             if error:
                 status_code = 404 if error == 'Availability not found' else 400
                 return Response({'status': 'error', 'message': error}, status=status_code)
-
-        create_exceptions(doctor_id=doctor_id, exceptions_items=payload.get('exceptions', []))
 
     return Response({'status': 'success', 'message': 'Availability updated successfully'})
 
@@ -98,8 +101,11 @@ def create_doctor_exception(request, doctor_id):
 
     serializer = ExceptionInputSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    with transaction.atomic():
-        create_exceptions(doctor_id=doctor_id, exceptions_items=[serializer.validated_data])
+    try:
+        with transaction.atomic():
+            create_exceptions(doctor_id=doctor_id, exceptions_items=[serializer.validated_data])
+    except ValueError as exc:
+        return Response({'status': 'error', 'message': str(exc)}, status=400)
 
     return Response({'status': 'success', 'message': 'Exception created successfully'})
 

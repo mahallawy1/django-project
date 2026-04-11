@@ -42,14 +42,18 @@ class DoctorException(models.Model):
     date = models.DateField()
     type = models.CharField(
         choices=[
-            ('VACATION', 'Vacation'),
-            ('DAY_OFF', 'Day Off'),
+            ('VACATION_DAY', 'Vacation Day'),
             ('EXTRA_WORKING_DAY', 'Extra Working Day'),
         ],
         max_length=20
     )
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['doctor', 'date'], name='unique_doctor_exception_date')
+        ]
 
     def __str__(self):
         return f"{self.doctor} - {self.date}"

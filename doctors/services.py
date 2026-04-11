@@ -52,13 +52,11 @@ def patch_schedule_days(doctor_id, similar_weekdays=None, availability_items=Non
         )
 
 
-def patch_single_availability(doctor_id, availability_id, day_of_week=None, start_time=None, end_time=None):
+def patch_single_availability(doctor_id, availability_id, start_time=None, end_time=None):
     schedule = DoctorSchedule.objects.filter(id=availability_id, doctor_id=doctor_id).first()
     if not schedule:
         return None, 'Availability not found'
 
-    if day_of_week is not None:
-        schedule.day_of_week = day_of_week
     if start_time is not None:
         schedule.start_time = start_time
     if end_time is not None:
@@ -79,11 +77,25 @@ def create_exceptions(doctor_id, exceptions_items):
     if not exceptions_items:
         return
 
-    for item in exceptions_items:
-        DoctorException.objects.create(
-            doctor_id=doctor_id,
-            date=item['date'],
-            type=item['type'],
-            start_time=item.get('start_time'),
-            end_time=item.get('end_time'),
-        )
+    exception_dates = [item['date'] for item in exceptions_items]
+    if len(set(exception_dates)) != len(exception_dates):
+        raise ValueError('Duplicate exception dates in request. Update the existing exception instead of creating another one.')
+
+    existing_dates = set(
+        DoctorException.objects.filter(doctor_id=doctor_id, date__in=exception_dates).values_list('date', flat=True)
+    )
+    if existing_dates:
+        existing_date = min(existing_dates).isoformat()
+        raise ValueError(f'An exception already exists on {existing_date}. Update it instead of creating another one.')
+
+    try:
+        for item in exceptions_items:
+            DoctorException.objects.create(
+                doctor_id=doctor_id,
+                date=item['date'],
+                type=item['type'],
+                start_time=item.get('start_time'),
+                end_time=item.get('end_time'),
+            )
+    except IntegrityError:
+        raise ValueError('An exception for this date already exists. Update it instead of creating another one.')

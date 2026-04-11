@@ -29,11 +29,14 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(primary_key=True, serialize=False)),
                 ('date', models.DateField()),
-                ('type', models.CharField(choices=[('VACATION', 'Vacation'), ('DAY_OFF', 'Day Off'), ('EXTRA_WORKING_DAY', 'Extra Working Day')], max_length=20)),
+                ('type', models.CharField(choices=[('VACATION_DAY', 'Vacation Day'), ('EXTRA_WORKING_DAY', 'Extra Working Day')], max_length=20)),
                 ('start_time', models.TimeField(blank=True, null=True)),
                 ('end_time', models.TimeField(blank=True, null=True)),
                 ('doctor', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='doctors.doctor')),
             ],
+            options={
+                'constraints': [models.UniqueConstraint(fields=('doctor', 'date'), name='unique_doctor_exception_date')],
+            },
         ),
         migrations.CreateModel(
             name='DoctorSchedule',
