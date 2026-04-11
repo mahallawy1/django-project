@@ -8,7 +8,8 @@ class Doctor(models.Model):
     buffer_time = models.IntegerField(choices=[(5, '5 minutes'), (10, '10 minutes')])
 
     def __str__(self):
-        return self.name
+        full_name = self.user_id.get_full_name().strip()
+        return full_name or self.user_id.username
     
 class DoctorSchedule(models.Model):
     class DayOfWeek(models.IntegerChoices):
@@ -26,20 +27,32 @@ class DoctorSchedule(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['doctor', 'day_of_week'], name='unique_doctor_day_schedule')
+        ]
+
     def __str__(self):
-        return f"{self.doctor.name} - {self.get_day_of_week_display()} {self.start_time} to {self.end_time}"
+        return f"{self.doctor} - {self.get_day_of_week_display()} {self.start_time} to {self.end_time}"
     
 
 class DoctorException(models.Model):
     id = models.AutoField(primary_key=True)
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE)
     date = models.DateField()
-    type = models.CharField(choices=[('VACATION', 'Vacation'), ('EXTRA_WORKING_DAY', 'Extra Working Day')], max_length=20)
-    start_time = models.TimeField()
-    end_time = models.TimeField()
+    type = models.CharField(
+        choices=[
+            ('VACATION', 'Vacation'),
+            ('DAY_OFF', 'Day Off'),
+            ('EXTRA_WORKING_DAY', 'Extra Working Day'),
+        ],
+        max_length=20
+    )
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"{self.doctor.name} - {self.date} {self.start_time} to {self.end_time}"
+        return f"{self.doctor} - {self.date}"
     
 
 class Slot(models.Model):
@@ -54,4 +67,5 @@ class Slot(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.doctor.name} - {self.date} {self.start_datetime} to {self.end_datetime} - {'Booked' if self.is_booked else 'Available'}"
+        status = 'Booked' if self.is_booked else 'Available'
+        return f"{self.doctor} - {self.start_datetime} to {self.end_datetime} - {status}"

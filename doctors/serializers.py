@@ -2,6 +2,16 @@ from rest_framework import serializers
 
 from .models import Doctor, DoctorException, DoctorSchedule, Slot
 
+WEEKDAY_DAYS = {1, 2, 3, 4, 5}
+EXCEPTION_TYPE_ALIASES = {
+    'WORKING_DAY': 'EXTRA_WORKING_DAY',
+    'VACATION_DAY': 'VACATION',
+}
+
+
+def _extract_time_range(data):
+    return data.get('start_time', data.get('start')), data.get('end_time', data.get('end'))
+
 
 class DoctorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -64,4 +74,140 @@ class SlotSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {'end_datetime': 'End datetime must be after start datetime.'}
             )
+        return data
+
+
+class AvailabilityItemInputSerializer(serializers.Serializer):
+    day_of_week = serializers.IntegerField(required=False)
+    start_time = serializers.TimeField(required=False)
+    end_time = serializers.TimeField(required=False)
+    start = serializers.TimeField(required=False, write_only=True)
+    end = serializers.TimeField(required=False, write_only=True)
+
+    def validate(self, data):
+        start_time, end_time = _extract_time_range(data)
+        if start_time is None or end_time is None:
+            raise serializers.ValidationError('start_time and end_time are required.')
+        if start_time >= end_time:
+            raise serializers.ValidationError('start_time must be earlier than end_time.')
+        data['start_time'] = start_time
+        data['end_time'] = end_time
+        return data
+
+
+class ExceptionInputSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    type = serializers.ChoiceField(
+        choices=[
+            'VACATION',
+            'DAY_OFF',
+            'EXTRA_WORKING_DAY',
+            'VACATION_DAY',
+            'WORKING_DAY',
+        ]
+    )
+    start_time = serializers.TimeField(required=False, allow_null=True)
+    end_time = serializers.TimeField(required=False, allow_null=True)
+    start = serializers.TimeField(required=False, allow_null=True, write_only=True)
+    end = serializers.TimeField(required=False, allow_null=True, write_only=True)
+
+    def validate(self, data):
+        start_time, end_time = _extract_time_range(data)
+        exception_type = EXCEPTION_TYPE_ALIASES.get(data['type'], data['type'])
+
+        if exception_type == 'EXTRA_WORKING_DAY':
+            if start_time is None or end_time is None:
+                raise serializers.ValidationError('EXTRA_WORKING_DAY requires start_time and end_time.')
+            if start_time >= end_time:
+                raise serializers.ValidationError('start_time must be earlier than end_time.')
+        elif start_time is not None and end_time is not None and start_time >= end_time:
+                raise serializers.ValidationError('start_time must be earlier than end_time.')
+
+        data['type'] = exception_type
+        data['start_time'] = start_time
+        data['end_time'] = end_time
+        return data
+
+
+class CreateAvailabilityRequestSerializer(serializers.Serializer):
+    similar_weekdays = serializers.BooleanField()
+    availability = AvailabilityItemInputSerializer(many=True)
+    exceptions = ExceptionInputSerializer(many=True, required=False)
+
+    def validate(self, data):
+        availability = data.get('availability', [])
+        similar_weekdays = data.get('similar_weekdays')
+
+        if similar_weekdays:
+            if len(availability) != 1:
+                raise serializers.ValidationError(
+                    {'availability': 'When similar_weekdays is true, provide exactly one availability item.'}
+                )
+        else:
+            if len(availability) != 5:
+                raise serializers.ValidationError(
+                    {'availability': 'When similar_weekdays is false, provide exactly 5 weekday entries.'}
+                )
+
+            days = []
+            for item in availability:
+                if 'day_of_week' not in item:
+                    raise serializers.ValidationError({'availability': 'day_of_week is required for each item.'})
+                if item['day_of_week'] not in WEEKDAY_DAYS:
+                    raise serializers.ValidationError({'availability': 'day_of_week must be one of 1,2,3,4,5.'})
+                days.append(item['day_of_week'])
+
+            if len(set(days)) != 5:
+                raise serializers.ValidationError({'availability': 'Each weekday (1..5) must be provided once.'})
+        return data
+
+
+class PatchAvailabilityRequestSerializer(serializers.Serializer):
+    similar_weekdays = serializers.BooleanField(required=False)
+    availability = AvailabilityItemInputSerializer(many=True, required=False)
+    exceptions = ExceptionInputSerializer(many=True, required=False)
+    day_of_week = serializers.IntegerField(required=False)
+    start_time = serializers.TimeField(required=False)
+    end_time = serializers.TimeField(required=False)
+    start = serializers.TimeField(required=False, write_only=True)
+    end = serializers.TimeField(required=False, write_only=True)
+
+    def validate(self, data):
+        has_availability = 'availability' in data
+        has_similar = 'similar_weekdays' in data
+        has_exceptions = 'exceptions' in data
+        has_direct = any(field in data for field in ('day_of_week', 'start_time', 'end_time', 'start', 'end'))
+
+        if not (has_availability or has_similar or has_exceptions or has_direct):
+            raise serializers.ValidationError('Provide at least one field to update.')
+
+        if has_similar and not has_availability:
+            raise serializers.ValidationError({'availability': 'availability is required when similar_weekdays is provided.'})
+
+        if has_availability:
+            availability = data['availability']
+            similar_weekdays = data.get('similar_weekdays', False)
+            if similar_weekdays:
+                if len(availability) != 1:
+                    raise serializers.ValidationError(
+                        {'availability': 'When similar_weekdays is true, provide exactly one availability item.'}
+                    )
+            else:
+                for item in availability:
+                    if 'day_of_week' not in item:
+                        raise serializers.ValidationError({'availability': 'day_of_week is required for each item.'})
+                    if item['day_of_week'] not in WEEKDAY_DAYS:
+                        raise serializers.ValidationError({'availability': 'day_of_week must be one of 1,2,3,4,5.'})
+
+        if 'day_of_week' in data and data['day_of_week'] not in WEEKDAY_DAYS:
+            raise serializers.ValidationError({'day_of_week': 'day_of_week must be one of 1,2,3,4,5.'})
+
+        direct_start, direct_end = _extract_time_range(data)
+        if direct_start is not None:
+            data['start_time'] = direct_start
+        if direct_end is not None:
+            data['end_time'] = direct_end
+        if direct_start is not None and direct_end is not None and direct_start >= direct_end:
+            raise serializers.ValidationError({'end_time': 'end_time must be after start_time.'})
+
         return data
