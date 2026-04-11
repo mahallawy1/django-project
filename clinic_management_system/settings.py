@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'doctors.apps.DoctorsConfig',
     'receptionist.apps.ReceptionistConfig',
     'appointments.apps.AppointmentsConfig',
+    'patients.apps.PatientsConfig',
 ]
 
 MIDDLEWARE = [
@@ -138,6 +139,7 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'users.User'
+
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
