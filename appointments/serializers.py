@@ -3,11 +3,9 @@ from rest_framework import serializers
 from .models import (
     Appointment,
     AppointmentAudit,
-    ConsultationRecord,
+    Consultation,     
     Invoice,
-    PrescriptionItem,
-    RequestedTest,
-    Waitlist,
+    Prescription,      
 )
 
 
@@ -18,7 +16,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def validate(self, data):
-        # Support partial updates by falling back to instance values
         start = data.get('start_datetime', getattr(self.instance, 'start_datetime', None))
         end = data.get('end_datetime', getattr(self.instance, 'end_datetime', None))
 
@@ -51,26 +48,18 @@ class AppointmentAuditSerializer(serializers.ModelSerializer):
         return data
 
 
-class RequestedTestSerializer(serializers.ModelSerializer):
+class PrescriptionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = RequestedTest
+        model = Prescription
         fields = '__all__'
 
 
-class PrescriptionItemSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PrescriptionItem
-        fields = '__all__'
-
-
-class ConsultationRecordSerializer(serializers.ModelSerializer):
-    requested_tests = RequestedTestSerializer(many=True, read_only=True)
-    prescription_items = PrescriptionItemSerializer(many=True, read_only=True)
+class ConsultationSerializer(serializers.ModelSerializer):
+    prescriptions = PrescriptionSerializer(many=True, read_only=True)
 
     class Meta:
-        model = ConsultationRecord
+        model = Consultation
         fields = '__all__'
-        read_only_fields = ['created_at']
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -82,24 +71,3 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError('Amount must be non-negative.')
         return value
-
-
-class WaitlistSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Waitlist
-        fields = '__all__'
-        read_only_fields = ['created_at']
-
-    def validate(self, data):
-        # Prevent duplicate waitlist entry on create
-        if self.instance is None:
-            doctor = data.get('doctor')
-            patient = data.get('patient')
-            preferred_date = data.get('preferred_date')
-            if Waitlist.objects.filter(
-                doctor=doctor, patient=patient, preferred_date=preferred_date
-            ).exists():
-                raise serializers.ValidationError(
-                    'This patient is already on the waitlist for this doctor on that date.'
-                )
-        return data
