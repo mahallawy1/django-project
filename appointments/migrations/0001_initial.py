@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('doctors', '0001_initial'),
+        ('receptionist', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                 ('check_in_time', models.DateTimeField(blank=True, null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('patient', models.ForeignKey(limit_choices_to={'role': 'PATIENT'}, on_delete=django.db.models.deletion.CASCADE, related_name='appointments', to=settings.AUTH_USER_MODEL)),
-                ('slot', models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name='appointment', to='doctors.slot')),
+                ('slot', models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name='appointment', to='receptionist.slot')),
             ],
         ),
         migrations.CreateModel(

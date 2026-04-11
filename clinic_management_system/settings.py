@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     'doctors.apps.DoctorsConfig',
+    'receptionist.apps.ReceptionistConfig',
     'appointments.apps.AppointmentsConfig',
 ]
 

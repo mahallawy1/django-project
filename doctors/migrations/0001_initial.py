@@ -51,17 +51,4 @@ class Migration(migrations.Migration):
                 'constraints': [models.UniqueConstraint(fields=('doctor', 'day_of_week'), name='unique_doctor_day_schedule')],
             },
         ),
-        migrations.CreateModel(
-            name='Slot',
-            fields=[
-                ('id', models.AutoField(primary_key=True, serialize=False)),
-                ('start_datetime', models.DateTimeField()),
-                ('end_datetime', models.DateTimeField()),
-                ('is_booked', models.BooleanField(default=False)),
-                ('doctor', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='doctors.doctor')),
-            ],
-            options={
-                'constraints': [models.UniqueConstraint(fields=('doctor', 'start_datetime'), name='unique_doctor_slot')],
-            },
-        ),
     ]

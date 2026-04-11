@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from .models import Doctor, DoctorException, DoctorSchedule, Slot
+from receptionist.models import Slot
+
+from .models import Doctor, DoctorException, DoctorSchedule
 
 WEEKDAY_DAYS = {1, 2, 3, 4, 5}
 
