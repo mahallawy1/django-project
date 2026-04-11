@@ -3,9 +3,10 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from patients.models import PatientProfile
 from users.serializers import UserSerializer
 from users.permissions import IsPatient
-from .serializers import patientRegSerializer
+from .serializers import PatientProfileSerializer, patientRegSerializer
 from django.db import transaction
 from appointments.models import Appointment
 from appointments.serializers import AppointmentSerializer
@@ -29,14 +30,18 @@ def patient_register(request):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated, IsPatient])
 def patient_me(request):
+    profile = PatientProfile.objects.filter(user=request.user).first()
+    if not profile:
+        return Response(
+            {"error": "profile not there"},
+            status=status.HTTP_404_NOT_FOUND
+        )
     if request.method == "GET":
-        serializer = UserSerializer(request.user, context={"request": request})
+        serializer = PatientProfileSerializer(profile)
         return Response(serializer.data)
 
     elif request.method == "PATCH":
-        serializer = UserSerializer(
-            request.user, data=request.data, partial=True, context={"request": request}
-        )
+        serializer = PatientProfileSerializer(profile, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
