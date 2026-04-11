@@ -78,6 +78,21 @@ class AppointmentAudit(models.Model):
 
 
 class Consultation(models.Model):
+    class TestType(models.TextChoices):
+        CBC = 'CBC', 'Complete Blood Count'
+        BMP = 'BMP', 'Basic Metabolic Panel'
+        LFT = 'LFT', 'Liver Function Test'
+        LIPID = 'LIPID', 'Lipid Panel'
+        TSH = 'TSH', 'Thyroid Stimulating Hormone'
+        HBA1C = 'HBA1C', 'HbA1c'
+        URINE = 'URINE', 'Urinalysis'
+        XRAY = 'XRAY', 'X-Ray'
+        ECG = 'ECG', 'Electrocardiogram'
+        ECHO = 'ECHO', 'Echocardiogram'
+        MRI = 'MRI', 'MRI Scan'
+        CT = 'CT', 'CT Scan'
+        ULTRASOUND = 'ULTRASOUND', 'Ultrasound'
+
     appointment = models.OneToOneField(
         Appointment,
         on_delete=models.CASCADE,
@@ -85,8 +100,18 @@ class Consultation(models.Model):
     )
     diagnosis = models.TextField()
     notes = models.TextField(blank=True)
-    tests = models.TextField(blank=True)
-    prescription = models.TextField(blank=True)
+    tests = models.JSONField(default=list, blank=True)
+
+
+class Prescription(models.Model):
+    consultation = models.ForeignKey(
+        'Consultation',
+        on_delete=models.CASCADE,
+        related_name='prescriptions',
+    )
+    drug_name = models.CharField(max_length=255)
+    dose = models.CharField(max_length=100)
+    duration = models.CharField(max_length=100)
 
 
 class Invoice(models.Model):
