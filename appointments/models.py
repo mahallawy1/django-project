@@ -21,7 +21,7 @@ class Appointment(models.Model):
     check_in_time = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     slot = models.OneToOneField(
-        'doctors.Slot',
+        'receptionist.Slot',
         on_delete=models.PROTECT,
         related_name='appointment',
     )
