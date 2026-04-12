@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Appointment, Consultation
-from .serializers import ConsultationRecordSerializer
+from .serializers import ConsultationSerializer
 from users.permissions import IsDoctor, IsPatient
 from datetime import datetime
 from django.db import transaction
@@ -266,8 +266,8 @@ def reschedule_appointment(request, appointment_id):
 
 	return Response({'status': 'success', 'message': 'Appointment rescheduled'})
 
-@permission_classes([IsDoctor | IsPatient])
 @api_view(['GET'])
+@permission_classes([IsDoctor | IsPatient])
 def consultation_read(request, id):
     appointment = get_object_or_404(Appointment, pk=id)
 
@@ -280,8 +280,8 @@ def consultation_read(request, id):
     return Response(serializer.data)
 
 
-@permission_classes([IsDoctor])
 @api_view(['POST', 'PATCH'])
+@permission_classes([IsDoctor])
 def consultation_write(request, id):
     appointment = get_object_or_404(Appointment, pk=id)
 
