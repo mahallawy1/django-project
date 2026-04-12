@@ -2,8 +2,10 @@ from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+
+from users.permissions import IsPatient, IsReceptionist
 
 from doctors.models import Doctor, DoctorSchedule, DoctorException
 from receptionist.models import Slot
@@ -72,9 +74,109 @@ def _get_requested_date_range(start_raw, end_raw):
     return start_date, end_date, None
 
 
+def _generate_slots_for_range(doctor, start_date, end_date, delete_unbooked=False):
+    schedules_by_day = {
+        schedule.day_of_week: schedule
+        for schedule in DoctorSchedule.objects.filter(doctor_id=doctor.id)
+    }
+    exceptions_by_date = {
+        exception.date: exception
+        for exception in DoctorException.objects.filter(
+            doctor_id=doctor.id,
+            date__gte=start_date,
+            date__lte=end_date,
+        )
+    }
+
+    with transaction.atomic():
+        deleted_count = 0
+        if delete_unbooked:
+            deleted_count, _ = Slot.objects.filter(
+                doctor_id=doctor.id,
+                start_datetime__date__gte=start_date,
+                start_datetime__date__lte=end_date,
+                is_booked=False,
+            ).delete()
+
+        new_slots = []
+        for current_date in _iter_dates(start_date, end_date):
+            exception_item = exceptions_by_date.get(current_date)
+
+            if exception_item and exception_item.type == 'VACATION_DAY':
+                continue
+
+            if exception_item and exception_item.type == 'EXTRA_WORKING_DAY':
+                day_start = exception_item.start_time
+                day_end = exception_item.end_time
+                if not day_start or not day_end:
+                    continue
+            else:
+                schedule_day = (current_date.isoweekday() + 1) % 7
+                schedule_item = schedules_by_day.get(schedule_day)
+                if not schedule_item:
+                    continue
+                day_start = schedule_item.start_time
+                day_end = schedule_item.end_time
+
+            if not day_start or not day_end:
+                continue
+            new_slots.extend(_build_day_slots(doctor, current_date, day_start, day_end))
+
+        if new_slots:
+            Slot.objects.bulk_create(new_slots, ignore_conflicts=True)
+
+    return deleted_count, len(new_slots)
+
+
+def _ensure_doctor_slots_for_range(doctor, start_date, end_date):
+    existing_dates = set(
+        Slot.objects.filter(
+            doctor_id=doctor.id,
+            start_datetime__date__gte=start_date,
+            start_datetime__date__lte=end_date,
+        )
+        .values_list('start_datetime__date', flat=True)
+        .distinct()
+    )
+
+    generated_count = 0
+    missing_dates_count = 0
+    range_start = None
+
+    for current_date in _iter_dates(start_date, end_date):
+        if current_date in existing_dates:
+            if range_start:
+                _, created_count = _generate_slots_for_range(
+                    doctor,
+                    range_start,
+                    current_date - timedelta(days=1),
+                    delete_unbooked=False,
+                )
+                generated_count += created_count
+                range_start = None
+            continue
+
+        missing_dates_count += 1
+        if range_start is None:
+            range_start = current_date
+
+    if range_start:
+        _, created_count = _generate_slots_for_range(
+            doctor,
+            range_start,
+            end_date,
+            delete_unbooked=False,
+        )
+        generated_count += created_count
+
+    return generated_count, missing_dates_count
+
+
 @api_view(['GET'])
+@permission_classes([IsPatient | IsReceptionist])
 def get_doctor_slots(request, doctor_id):
-    if not Doctor.objects.filter(id=doctor_id).exists():
+    doctor = Doctor.objects.filter(id=doctor_id).first()
+    if not doctor:
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
 
     start_date, end_date, date_error = _get_requested_date_range(
@@ -114,6 +216,7 @@ def get_doctor_slots(request, doctor_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsReceptionist])
 def regenerate_slots(request, doctor_id):
     doctor = Doctor.objects.filter(id=doctor_id).first()
     if not doctor:
@@ -126,55 +229,12 @@ def regenerate_slots(request, doctor_id):
     if date_error:
         return Response({'status': 'error', 'message': date_error}, status=400)
 
-    schedules_by_day = {
-        schedule.day_of_week: schedule
-        for schedule in DoctorSchedule.objects.filter(doctor_id=doctor_id)
-    }
-    exceptions_by_date = {
-        exception.date: exception
-        for exception in DoctorException.objects.filter(
-            doctor_id=doctor_id,
-            date__gte=start_date,
-            date__lte=end_date,
-        )
-    }
-
-    with transaction.atomic():
-        deleted_count, _ = Slot.objects.filter(
-            doctor_id=doctor_id,
-            start_datetime__date__gte=start_date,
-            start_datetime__date__lte=end_date,
-            is_booked=False,
-        ).delete()
-
-        new_slots = []
-        for current_date in _iter_dates(start_date, end_date):
-            exception_item = exceptions_by_date.get(current_date)
-
-            # Exception check must happen before schedule-based generation.
-            if exception_item and exception_item.type == 'VACATION_DAY':
-                continue
-
-            if exception_item and exception_item.type == 'EXTRA_WORKING_DAY':
-                day_start = exception_item.start_time
-                day_end = exception_item.end_time
-                if not day_start or not day_end:
-                    continue
-            else:
-                # DoctorSchedule uses 0=Saturday..6=Friday.
-                schedule_day = (current_date.isoweekday() + 1) % 7
-                schedule_item = schedules_by_day.get(schedule_day)
-                if not schedule_item:
-                    continue
-                day_start = schedule_item.start_time
-                day_end = schedule_item.end_time
-
-            if not day_start or not day_end:
-                continue
-            new_slots.extend(_build_day_slots(doctor, current_date, day_start, day_end))
-
-        if new_slots:
-            Slot.objects.bulk_create(new_slots, ignore_conflicts=True)
+    deleted_count, generated_count = _generate_slots_for_range(
+        doctor,
+        start_date,
+        end_date,
+        delete_unbooked=True,
+    )
 
     return Response(
         {
@@ -183,6 +243,49 @@ def regenerate_slots(request, doctor_id):
             'start_date': start_date,
             'end_date': end_date,
             'deleted_unbooked_slots': deleted_count,
-            'generated_slots': len(new_slots),
+            'generated_slots': generated_count,
+        }
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsReceptionist])
+def regenerate_all_doctors_next_7_days_slots(request):
+    start_date = timezone.localdate()
+    end_date = start_date + timedelta(days=6)
+
+    doctors_total = 0
+    doctors_skipped = 0
+    doctors_regenerated = 0
+    total_missing_dates = 0
+    total_generated_slots = 0
+
+    for doctor in Doctor.objects.all():
+        doctors_total += 1
+        generated_count, missing_dates_count = _ensure_doctor_slots_for_range(
+            doctor,
+            start_date,
+            end_date,
+        )
+
+        total_missing_dates += missing_dates_count
+        total_generated_slots += generated_count
+
+        if missing_dates_count == 0:
+            doctors_skipped += 1
+        else:
+            doctors_regenerated += 1
+
+    return Response(
+        {
+            'status': 'success',
+            'message': 'Next 7 days slots ensured for all doctors',
+            'start_date': start_date,
+            'end_date': end_date,
+            'doctors_total': doctors_total,
+            'doctors_skipped_already_had_slots': doctors_skipped,
+            'doctors_regenerated_missing_slots': doctors_regenerated,
+            'missing_dates_detected': total_missing_dates,
+            'generated_slots': total_generated_slots,
         }
     )
