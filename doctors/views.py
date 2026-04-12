@@ -1,4 +1,7 @@
-from rest_framework.decorators import api_view
+from datetime import datetime
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from rest_framework.decorators import api_view, permission_classes
@@ -11,6 +14,26 @@ from doctors.models import Doctor, DoctorSchedule, DoctorException
 from django.db import transaction
 from doctors.serializers import CreateAvailabilityRequestSerializer, PatchAvailabilityRequestSerializer, ExceptionInputSerializer
 from doctors.services import replace_week_schedule, patch_schedule_days, patch_single_availability, create_exceptions
+from users.permissions import IsDoctor
+
+
+def _get_current_doctor(request):
+    if not request.user or not request.user.is_authenticated:
+        return None
+    return Doctor.objects.filter(user_id=request.user).select_related('user_id').first()
+
+
+def _parse_iso_date(value):
+    if value in (None, ''):
+        return None, None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date(), None
+    except (TypeError, ValueError):
+        return None, 'date must be in YYYY-MM-DD format.'
+
+
+def _date_to_schedule_day(work_date):
+    return (work_date.isoweekday() + 1) % 7
 
 
 def _doctor_exists(doctor_id):
@@ -31,6 +54,118 @@ def get_all_doctors(request):
         for doctor in doctors
     ]
     return Response({'status': 'success', 'doctors': doctor_list})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsDoctor])
+def get_doctor_me(request):
+    doctor = _get_current_doctor(request)
+    if not doctor:
+        return Response({'status': 'error', 'message': 'Doctor profile not found'}, status=404)
+
+    user = doctor.user_id
+    return Response(
+        {
+            'status': 'success',
+            'doctor': {
+                'id': doctor.id,
+                'user_id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'specialization': doctor.specialization,
+                'session_duration': doctor.session_duration,
+                'buffer_time': doctor.buffer_time,
+            },
+        }
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsDoctor])
+def get_doctor_schedule_me(request):
+    doctor = _get_current_doctor(request)
+    if not doctor:
+        return Response({'status': 'error', 'message': 'Doctor profile not found'}, status=404)
+
+    date_value, date_error = _parse_iso_date(request.query_params.get('date'))
+    if date_error:
+        return Response({'status': 'error', 'message': date_error}, status=400)
+
+    if date_value:
+        exception_item = DoctorException.objects.filter(
+            doctor_id=doctor.id, date=date_value
+        ).first()
+
+        schedule_day = _date_to_schedule_day(date_value)
+        schedule_item = DoctorSchedule.objects.filter(
+            doctor_id=doctor.id, day_of_week=schedule_day
+        ).first()
+
+        if exception_item and exception_item.type == 'VACATION_DAY':
+            availability = None
+        elif exception_item and exception_item.type == 'EXTRA_WORKING_DAY':
+            availability = {
+                'start_time': exception_item.start_time,
+                'end_time': exception_item.end_time,
+            }
+        elif schedule_item:
+            availability = {
+                'start_time': schedule_item.start_time,
+                'end_time': schedule_item.end_time,
+            }
+        else:
+            availability = None
+
+        return Response(
+            {
+                'status': 'success',
+                'date': date_value,
+                'availability': availability,
+                'exception': (
+                    {
+                        'id': exception_item.id,
+                        'type': exception_item.type,
+                        'start_time': exception_item.start_time,
+                        'end_time': exception_item.end_time,
+                    }
+                    if exception_item
+                    else None
+                ),
+            }
+        )
+
+    schedules = DoctorSchedule.objects.filter(doctor_id=doctor.id).order_by('day_of_week')
+    exceptions = DoctorException.objects.filter(doctor_id=doctor.id).order_by('date')
+
+    schedule_list = [
+        {
+            'id': schedule.id,
+            'day_of_week': schedule.day_of_week,
+            'start_time': schedule.start_time,
+            'end_time': schedule.end_time,
+        }
+        for schedule in schedules
+    ]
+    exception_list = [
+        {
+            'id': exception.id,
+            'date': exception.date,
+            'type': exception.type,
+            'start_time': exception.start_time,
+            'end_time': exception.end_time,
+        }
+        for exception in exceptions
+    ]
+
+    return Response(
+        {
+            'status': 'success',
+            'schedules': schedule_list,
+            'exceptions': exception_list,
+        }
+    )
 
 
 @api_view(['GET', 'POST', 'DELETE'])
