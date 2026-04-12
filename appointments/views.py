@@ -1,3 +1,10 @@
+<<<<<<< Updated upstream
+=======
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from .models import Appointment, Consultation
+from users.permissions import IsDoctor
+>>>>>>> Stashed changes
 from datetime import datetime
 
 from django.db import transaction
@@ -261,3 +268,63 @@ def reschedule_appointment(request, appointment_id):
 		)
 
 	return Response({'status': 'success', 'message': 'Appointment rescheduled'})
+<<<<<<< Updated upstream
+=======
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated, IsDoctor])
+def decline_appointment(request, appointment_id):
+	appointment = _get_appointment(appointment_id)
+	if not appointment:
+		return Response({'status': 'error', 'message': 'Appointment not found'}, status=404)
+
+	if appointment.slot.doctor.user_id_id != request.user.id:
+		return Response({'status': 'error', 'message': 'Not allowed to decline this appointment'}, status=403)
+
+	if appointment.status != Appointment.Status.SCHEDULED:
+		return Response({'status': 'error', 'message': 'Only requested/scheduled appointments can be declined'}, status=400)
+
+	reason = request.data.get('reason')
+	if not reason:
+		return Response({'status': 'error', 'message': 'reason is required'}, status=400)
+
+	with transaction.atomic():
+		appointment.status = Appointment.Status.CANCELLED
+		appointment.save(update_fields=['status'])
+
+		if appointment.slot.is_booked:
+			appointment.slot.is_booked = False
+			appointment.slot.save(update_fields=['is_booked'])
+
+	return Response({'status': 'success', 'message': 'Appointment declined', 'reason': reason})
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated, IsDoctor])
+def complete_appointment(request, appointment_id):
+	appointment = _get_appointment(appointment_id)
+	if not appointment:
+		return Response({'status': 'error', 'message': 'Appointment not found'}, status=404)
+
+	if appointment.slot.doctor.user_id_id != request.user.id:
+		return Response({'status': 'error', 'message': 'Not allowed to complete this appointment'}, status=403)
+
+	status_error = _validate_status_payload(request, Appointment.Status.COMPLETED)
+	if status_error:
+		return Response({'status': 'error', 'message': status_error}, status=400)
+
+	if appointment.status in [Appointment.Status.CANCELLED, Appointment.Status.NO_SHOW]:
+		return Response({'status': 'error', 'message': 'Cannot complete this appointment in its current state'}, status=400)
+
+	if not Consultation.objects.filter(appointment=appointment).exists():
+		return Response(
+			{'status': 'error', 'message': 'Consultation record is required before completing appointment'},
+			status=400,
+		)
+
+	appointment.status = Appointment.Status.COMPLETED
+	appointment.save(update_fields=['status'])
+
+	return Response({'status': 'success', 'message': 'Appointment marked as completed'})
+>>>>>>> Stashed changes
