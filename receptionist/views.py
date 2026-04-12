@@ -1,15 +1,11 @@
 from datetime import datetime, timedelta
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from users.permissions import IsDoctor
-from users.permissions import IsReceptionist
-from users.permissions import IsPatient
-
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+
+from users.permissions import IsPatient, IsReceptionist
 
 from doctors.models import Doctor, DoctorSchedule, DoctorException
 from receptionist.models import Slot
@@ -132,8 +128,52 @@ def _generate_slots_for_range(doctor, start_date, end_date, delete_unbooked=Fals
     return deleted_count, len(new_slots)
 
 
+def _ensure_doctor_slots_for_range(doctor, start_date, end_date):
+    existing_dates = set(
+        Slot.objects.filter(
+            doctor_id=doctor.id,
+            start_datetime__date__gte=start_date,
+            start_datetime__date__lte=end_date,
+        )
+        .values_list('start_datetime__date', flat=True)
+        .distinct()
+    )
+
+    generated_count = 0
+    missing_dates_count = 0
+    range_start = None
+
+    for current_date in _iter_dates(start_date, end_date):
+        if current_date in existing_dates:
+            if range_start:
+                _, created_count = _generate_slots_for_range(
+                    doctor,
+                    range_start,
+                    current_date - timedelta(days=1),
+                    delete_unbooked=False,
+                )
+                generated_count += created_count
+                range_start = None
+            continue
+
+        missing_dates_count += 1
+        if range_start is None:
+            range_start = current_date
+
+    if range_start:
+        _, created_count = _generate_slots_for_range(
+            doctor,
+            range_start,
+            end_date,
+            delete_unbooked=False,
+        )
+        generated_count += created_count
+
+    return generated_count, missing_dates_count
+
+
 @api_view(['GET'])
-@permission_classes([IsPatient])
+@permission_classes([IsPatient | IsReceptionist])
 def get_doctor_slots(request, doctor_id):
     doctor = Doctor.objects.filter(id=doctor_id).first()
     if not doctor:
@@ -204,5 +244,48 @@ def regenerate_slots(request, doctor_id):
             'end_date': end_date,
             'deleted_unbooked_slots': deleted_count,
             'generated_slots': generated_count,
+        }
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsReceptionist])
+def regenerate_all_doctors_next_7_days_slots(request):
+    start_date = timezone.localdate()
+    end_date = start_date + timedelta(days=6)
+
+    doctors_total = 0
+    doctors_skipped = 0
+    doctors_regenerated = 0
+    total_missing_dates = 0
+    total_generated_slots = 0
+
+    for doctor in Doctor.objects.all():
+        doctors_total += 1
+        generated_count, missing_dates_count = _ensure_doctor_slots_for_range(
+            doctor,
+            start_date,
+            end_date,
+        )
+
+        total_missing_dates += missing_dates_count
+        total_generated_slots += generated_count
+
+        if missing_dates_count == 0:
+            doctors_skipped += 1
+        else:
+            doctors_regenerated += 1
+
+    return Response(
+        {
+            'status': 'success',
+            'message': 'Next 7 days slots ensured for all doctors',
+            'start_date': start_date,
+            'end_date': end_date,
+            'doctors_total': doctors_total,
+            'doctors_skipped_already_had_slots': doctors_skipped,
+            'doctors_regenerated_missing_slots': doctors_regenerated,
+            'missing_dates_detected': total_missing_dates,
+            'generated_slots': total_generated_slots,
         }
     )
