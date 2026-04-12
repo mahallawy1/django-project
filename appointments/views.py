@@ -3,13 +3,15 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import status
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from doctors.models import Doctor
 from receptionist.models import Slot
-from users.permissions import IsDoctor, IsPatient
+from users.permissions import IsDoctor, IsPatient, IsReceptionist
 
 from .models import Appointment, AppointmentAudit, Consultation
 from .serializers import ConsultationSerializer
@@ -255,6 +257,126 @@ def reschedule_appointment(request, appointment_id):
         )
 
     return Response({'status': 'success', 'message': 'Appointment rescheduled'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reschedule_history(request, appointment_id):
+    appointment = _get_appointment(appointment_id)
+    if not appointment:
+        return Response({'status': 'error', 'message': 'Appointment not found'}, status=404)
+
+    user_role = getattr(request.user, 'role', None)
+    is_owner = appointment.patient_id == request.user.id
+    is_staff = user_role in ('DOCTOR', 'RECEPTIONIST', 'ADMIN')
+
+    if not is_owner and not is_staff:
+        return Response({'status': 'error', 'message': 'Not allowed to view this resource'}, status=403)
+
+    if user_role == 'DOCTOR':
+        doctor = Doctor.objects.filter(user_id=request.user).first()
+        if not doctor or appointment.slot.doctor_id != doctor.id:
+            return Response({'status': 'error', 'message': 'Not allowed to view this resource'}, status=403)
+
+    audits = (
+        AppointmentAudit.objects.select_related('changed_by')
+        .filter(appointment_id=appointment_id)
+        .order_by('-timestamp')
+    )
+
+    history = []
+    for audit in audits:
+        actor = audit.changed_by
+        history.append(
+            {
+                'old_start_datetime': audit.old_start_datetime,
+                'new_start_datetime': audit.new_start_datetime,
+                'changed_by': {
+                    'id': actor.id if actor else None,
+                    'name': (actor.get_full_name().strip() or actor.username) if actor else None,
+                    'role': getattr(actor, 'role', None) if actor else None,
+                },
+                'reason': audit.reason,
+                'timestamp': audit.timestamp,
+            }
+        )
+
+    return Response({'status': 'success', 'count': len(history), 'history': history})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsDoctor | IsReceptionist])
+def today_queue(request):
+    doctor_id = request.query_params.get('doctor_id')
+    date_raw = request.query_params.get('date')
+
+    queue_date, date_error = _parse_iso_date(date_raw, 'date')
+    if date_error:
+        return Response({'status': 'error', 'message': date_error}, status=400)
+    if queue_date is None:
+        queue_date = timezone.localdate()
+
+    if request.user.role == 'DOCTOR':
+        doctor = Doctor.objects.filter(user_id=request.user).first()
+        if not doctor:
+            return Response({'status': 'error', 'message': 'Doctor profile not found'}, status=404)
+
+        if doctor_id and str(doctor.id) != str(doctor_id):
+            return Response({'status': 'error', 'message': 'Not allowed to view another doctor queue'}, status=403)
+        doctor_id = doctor.id
+
+    if not doctor_id:
+        return Response({'status': 'error', 'message': 'doctor_id is required'}, status=400)
+
+    appointments = (
+        Appointment.objects.select_related('patient', 'slot', 'slot__doctor', 'slot__doctor__user_id')
+        .filter(
+            slot__doctor_id=doctor_id,
+            slot__start_datetime__date=queue_date,
+            status__in=[
+                Appointment.Status.SCHEDULED,
+                Appointment.Status.CONFIRMED,
+                Appointment.Status.CHECKED_IN,
+            ],
+        )
+        .order_by('check_in_time', 'slot__start_datetime')
+    )
+
+    now = timezone.now()
+    queue_items = []
+    for appointment in appointments:
+        check_in_time = appointment.check_in_time
+        waiting_minutes = None
+        if check_in_time and appointment.status == Appointment.Status.CHECKED_IN:
+            delta = now - check_in_time
+            waiting_minutes = max(int(delta.total_seconds() // 60), 0)
+
+        patient = appointment.patient
+        queue_items.append(
+            {
+                'appointment_id': appointment.id,
+                'status': appointment.status,
+                'check_in_time': check_in_time,
+                'waiting_time_minutes': waiting_minutes,
+                'scheduled_start_datetime': appointment.slot.start_datetime,
+                'scheduled_end_datetime': appointment.slot.end_datetime,
+                'patient': {
+                    'id': patient.id,
+                    'name': patient.get_full_name().strip() or patient.username,
+                    'email': patient.email,
+                },
+            }
+        )
+
+    return Response(
+        {
+            'status': 'success',
+            'doctor_id': int(doctor_id),
+            'date': queue_date,
+            'count': len(queue_items),
+            'queue': queue_items,
+        }
+    )
 
 
 @api_view(['PATCH'])
