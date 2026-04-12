@@ -9,6 +9,8 @@ from .views import (
     decline_appointment,
     no_show_appointment,
     reschedule_appointment,
+    consultation_read,
+    consultation_write,
 )
 
 urlpatterns = [
@@ -20,4 +22,6 @@ urlpatterns = [
     path('<int:appointment_id>/no-show', no_show_appointment, name='no_show_appointment'),
     path('<int:appointment_id>/cancel', cancel_appointment, name='cancel_appointment'),
     path('<int:appointment_id>/reschedule', reschedule_appointment, name='reschedule_appointment'),
+    path('<int:id>/consultation', consultation_read, name='consultation_read'),
+    path('<int:id>/consultation/write', consultation_write, name='consultation_write'),
 ]
