@@ -3,9 +3,8 @@ from rest_framework import serializers
 from .models import (
     Appointment,
     AppointmentAudit,
-    Consultation,     
+    Consultation,
     Invoice,
-    Prescription,      
 )
 
 
@@ -16,6 +15,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def validate(self, data):
+        # Support partial updates by falling back to instance values
         start = data.get('start_datetime', getattr(self.instance, 'start_datetime', None))
         end = data.get('end_datetime', getattr(self.instance, 'end_datetime', None))
 
@@ -48,14 +48,7 @@ class AppointmentAuditSerializer(serializers.ModelSerializer):
         return data
 
 
-class PrescriptionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Prescription
-        fields = '__all__'
-
-
 class ConsultationSerializer(serializers.ModelSerializer):
-    prescriptions = PrescriptionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Consultation
