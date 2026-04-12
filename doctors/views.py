@@ -1,6 +1,12 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from users.permissions import IsDoctor
+from users.permissions import IsReceptionist
+from users.permissions import IsPatient
+
 from doctors.models import Doctor, DoctorSchedule, DoctorException
 from django.db import transaction
 from doctors.serializers import CreateAvailabilityRequestSerializer, PatchAvailabilityRequestSerializer, ExceptionInputSerializer
@@ -14,6 +20,7 @@ def _doctor_exists(doctor_id):
 @api_view(['GET'])
 def get_all_doctors(request):
     doctors = Doctor.objects.select_related('user_id').all()
+
     doctor_list = [
         {
             'id': doctor.id,
@@ -27,6 +34,7 @@ def get_all_doctors(request):
 
 
 @api_view(['GET', 'POST', 'DELETE'])
+@permission_classes([IsReceptionist])
 def create_doctor_availability(request, doctor_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
@@ -65,6 +73,7 @@ def create_doctor_availability(request, doctor_id):
 
 
 @api_view(['PATCH'])
+@permission_classes([IsReceptionist])
 def availability_detail(request, doctor_id, availability_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
@@ -81,7 +90,7 @@ def availability_detail(request, doctor_id, availability_id):
         )
 
         if any(field in payload for field in ('start_time', 'end_time')):
-            _, error = patch_single_availability(
+            _,  error = patch_single_availability(
                 doctor_id=doctor_id,
                 availability_id=availability_id,
                 start_time=payload.get('start_time'),
@@ -95,6 +104,7 @@ def availability_detail(request, doctor_id, availability_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsReceptionist])
 def create_doctor_exception(request, doctor_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
@@ -111,6 +121,7 @@ def create_doctor_exception(request, doctor_id):
 
 
 @api_view(['DELETE'])
+@permission_classes([IsReceptionist])
 def delete_doctor_exception(request, doctor_id, exception_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
