@@ -1,5 +1,5 @@
 from django.urls import path
-
+from . import views
 from .views import (
     list_appointments,
     cancel_appointment,
@@ -16,4 +16,6 @@ urlpatterns = [
     path('<int:appointment_id>/no-show', no_show_appointment, name='no_show_appointment'),
     path('<int:appointment_id>/cancel', cancel_appointment, name='cancel_appointment'),
     path('<int:appointment_id>/reschedule', reschedule_appointment, name='reschedule_appointment'),
+    path('appointments/<int:id>/consultation', views.consultation_read, name='consultation_read'),
+    path('appointments/<int:id>/consultation', views.consultation_write, name='consultation_write'),
 ]
