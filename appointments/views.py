@@ -276,7 +276,7 @@ def consultation_read(request, id):
         return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     consultation = get_object_or_404(Consultation, appointment=appointment)
-    serializer = ConsultationRecordSerializer(consultation)
+    serializer = ConsultationSerializer(consultation)
     return Response(serializer.data)
 
 
@@ -287,14 +287,14 @@ def consultation_write(request, id):
 
     if request.method == 'POST':
         data = {**request.data, 'appointment': appointment.pk}
-        serializer = ConsultationRecordSerializer(data=data)
+        serializer = ConsultationSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     # PATCH
     consultation = get_object_or_404(Consultation, appointment=appointment)
-    serializer = ConsultationRecordSerializer(consultation, data=request.data, partial=True)
+    serializer = ConsultationSerializer(consultation, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(serializer.data)
