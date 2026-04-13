@@ -1,11 +1,19 @@
 from django.contrib.auth.models import Group
 from users.models import User
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import GroupSerializer, UserSerializer
 from users.permissions import IsAdmin
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
+
+
+class StandardPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -16,7 +24,10 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
-
+    pagination_class = StandardPagination
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['username', 'email', 'first_name', 'last_name']
+    filterset_fields = ['role', 'is_active']
 
 class GroupViewSet(viewsets.ModelViewSet):
     """

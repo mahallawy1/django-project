@@ -1,6 +1,10 @@
 from django.urls import path
 
 from .views import (
+    analytics_export,
+    appointment_analytics,
+    today_status_analytics,
+    appointment_detail,
     cancel_appointment,
     check_in_appointment,
     complete_appointment,
@@ -17,6 +21,10 @@ from .views import (
 
 urlpatterns = [
     path('', list_appointments, name='list_appointments'),
+    path('analytics', appointment_analytics, name='appointment_analytics'),
+    path('analytics/today-status', today_status_analytics, name='today_status_analytics'),
+    path('analytics/export', analytics_export, name='analytics_export'),
+    path('<int:appointment_id>', appointment_detail, name='appointment_detail'),
     path('queue/today', today_queue, name='today_queue'),
     path('<int:appointment_id>/confirm', confirm_appointment, name='confirm_appointment'),
     path('<int:appointment_id>/check-in', check_in_appointment, name='check_in_appointment'),
