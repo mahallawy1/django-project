@@ -21,6 +21,9 @@ class IsDoctorReceptionistAdmin(BasePermission):
     def has_permission(self, request, view):
         return request.user and getattr(request.user, 'role', None) in ('DOCTOR', 'RECEPTIONIST', 'ADMIN')
 
+class IsDoctorReceptionistAdminPatient(BasePermission):
+    def has_permission(self, request, view):
+        return request.user and getattr(request.user, 'role', None) in ('DOCTOR', 'RECEPTIONIST', 'ADMIN', 'PATIENT')
 
 def _get_appointment(appointment_id):
     return (
@@ -181,7 +184,7 @@ def no_show_appointment(request, appointment_id):
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated, IsDoctorReceptionistAdmin])
+@permission_classes([IsAuthenticated, IsDoctorReceptionistAdminPatient])
 def cancel_appointment(request, appointment_id):
     appointment = _get_appointment(appointment_id)
     if not appointment:
@@ -205,12 +208,14 @@ def cancel_appointment(request, appointment_id):
         if slot.is_booked:
             slot.is_booked = False
             slot.save(update_fields=['is_booked'])
+        appointment.slot = None
+        appointment.save(update_fields=['slot'])    
 
     return Response({'status': 'success', 'message': 'Appointment cancelled', 'reason': reason})
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated, IsDoctorReceptionistAdmin])
+@permission_classes([IsAuthenticated, IsDoctorReceptionistAdminPatient])
 def reschedule_appointment(request, appointment_id):
     appointment = _get_appointment(appointment_id)
     if not appointment:

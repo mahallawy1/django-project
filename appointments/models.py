@@ -25,6 +25,8 @@ class Appointment(models.Model):
         'receptionist.Slot',
         on_delete=models.PROTECT,
         related_name='appointment',
+        null=True,
+    blank=True,
     )
     patient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -34,12 +36,12 @@ class Appointment(models.Model):
     )
 
     class Meta:
-        constraints = [
+       """  constraints = [
             models.UniqueConstraint(
                 fields=['slot'],
                 name='unique_slot',
             )
-        ]
+        ] """
 
 
     def __str__(self):

@@ -75,6 +75,8 @@ def book_appointment(request):
     isoverLaped = Appointment.objects.filter(
         patient=request.user,
         slot__start_datetime=slot.start_datetime,
+        ).exclude(
+    status=Appointment.Status.CANCELLED
     ).exists()
     if isoverLaped:
         return Response({"error": "you already have appointment with onther doctor for the same time (you have zehaimar or what! )"},status=status.HTTP_400_BAD_REQUEST)
