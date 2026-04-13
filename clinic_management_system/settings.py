@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'appointments.apps.AppointmentsConfig',
     'patients.apps.PatientsConfig',
     'corsheaders',
+    'django_filters',
 ]
 
 
@@ -156,7 +157,7 @@ REST_FRAMEWORK = {
 # JWT settings: set access token lifetime to 1 hour
 from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 

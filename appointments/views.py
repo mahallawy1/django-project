@@ -1,7 +1,9 @@
-from datetime import datetime
-
+import csv
+from datetime import datetime, timedelta
 from django.db import transaction
-from django.db.models import Q
+from django.http import HttpResponse
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -11,7 +13,7 @@ from rest_framework.response import Response
 
 from doctors.models import Doctor
 from receptionist.models import Slot
-from users.permissions import IsDoctor, IsPatient, IsReceptionist
+from users.permissions import IsDoctor, IsPatient, IsReceptionist, IsAdmin
 
 from .models import Appointment, AppointmentAudit, Consultation
 from .serializers import ConsultationSerializer
@@ -44,6 +46,136 @@ def _parse_iso_date(value, field_name):
         return datetime.strptime(value, '%Y-%m-%d').date(), None
     except (TypeError, ValueError):
         return None, f'{field_name} must be in YYYY-MM-DD format.'
+
+
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def appointment_analytics(request):
+    today = timezone.now().date()
+    start_date = today - timedelta(days=6)
+
+    counts = (
+        Appointment.objects
+        .filter(slot__start_datetime__date__gte=start_date, slot__start_datetime__date__lte=today)
+        .values(date=TruncDate('slot__start_datetime'))
+        .annotate(total=Count('id'))
+        .order_by('date')
+    )
+
+    counts_by_date = {row['date']: row['total'] for row in counts}
+    data = [
+        {'date': (start_date + timedelta(days=i)).isoformat(), 'total': counts_by_date.get(start_date + timedelta(days=i), 0)}
+        for i in range(7)
+    ]
+
+    return Response({'status': 'success', 'data': data})
+
+
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def today_status_analytics(request):
+    today = timezone.now().date()
+
+    counts = (
+        Appointment.objects
+        .filter(slot__start_datetime__date=today)
+        .values('status')
+        .annotate(total=Count('id'))
+    )
+
+    total = sum(row['total'] for row in counts)
+
+    data = [
+        {
+            'status': row['status'],
+            'total': row['total'],
+            'percentage': round(row['total'] / total * 100, 2) if total else 0,
+        }
+        for row in counts
+    ]
+
+    return Response({'status': 'success', 'date': today.isoformat(), 'total': total, 'data': data})
+
+
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def analytics_export(request):
+    today = timezone.now().date()
+    start_date = today - timedelta(days=6)
+
+    daily_counts = (
+        Appointment.objects
+        .filter(slot__start_datetime__date__gte=start_date, slot__start_datetime__date__lte=today)
+        .values(date=TruncDate('slot__start_datetime'))
+        .annotate(total=Count('id'))
+    )
+    daily_by_date = {row['date']: row['total'] for row in daily_counts}
+
+    status_counts = (
+        Appointment.objects
+        .filter(slot__start_datetime__date=today)
+        .values('status')
+        .annotate(total=Count('id'))
+    )
+    status_total = sum(row['total'] for row in status_counts)
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="appointments_analytics_{today.isoformat()}.csv"'
+
+    writer = csv.writer(response)
+
+    writer.writerow(['date', 'total_appointments'])
+    for i in range(7):
+        day = start_date + timedelta(days=i)
+        writer.writerow(['\t' + day.isoformat(), daily_by_date.get(day, 0)])
+
+    writer.writerow([])
+
+    writer.writerow(['status', 'total', 'percentage'])
+    for row in status_counts:
+        pct = round(row['total'] / status_total * 100, 2) if status_total else 0
+        writer.writerow([row['status'], row['total'], pct])
+
+    return response
+
+
+@api_view(['GET'])
+def appointment_detail(request, appointment_id):
+    if not appointment_id:
+        return Response({'status': 'error', 'message': 'appointment_id is required'}, status=400)
+
+    appointment = _get_appointment(appointment_id)
+    if not appointment:
+        return Response({'status': 'error', 'message': 'Appointment not found'}, status=404)
+
+    doctor = appointment.slot.doctor
+    doctor_user = doctor.user_id
+    patient = appointment.patient
+
+    data = {
+        'id': appointment.id,
+        'status': appointment.status,
+        'check_in_time': appointment.check_in_time,
+        'created_at': appointment.created_at,
+        'slot': {
+            'id': appointment.slot_id,
+            'start_datetime': appointment.slot.start_datetime,
+            'end_datetime': appointment.slot.end_datetime,
+            'doctor_id': doctor.id,
+        },
+        'doctor': {
+            'id': doctor.id,
+            'user_id': doctor_user.id,
+            'name': doctor_user.get_full_name().strip() or doctor_user.username,
+        },
+        'patient': {
+            'id': patient.id,
+            'name': patient.get_full_name().strip() or patient.username,
+            'email': patient.email,
+        },
+    }
+
+    return Response({'status': 'success', 'appointment': data})
 
 
 @api_view(['GET'])
