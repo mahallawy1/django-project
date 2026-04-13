@@ -238,11 +238,26 @@ def availability_detail(request, doctor_id, availability_id):
     return Response({'status': 'success', 'message': 'Availability updated successfully'})
 
 
-@api_view(['POST'])
+@api_view(['POST', 'GET'])
 @permission_classes([IsReceptionist])
 def create_doctor_exception(request, doctor_id):
     if not _doctor_exists(doctor_id):
         return Response({'status': 'error', 'message': 'Doctor not found'}, status=404)
+
+    if request.method == 'GET':
+        exceptions = DoctorException.objects.filter(doctor_id=doctor_id)
+        exception_list = [
+            {
+                'id': exception.id,
+                'date': exception.date,
+                'type': exception.type,
+                'start_time': exception.start_time,
+                'end_time': exception.end_time,
+            }
+            for exception in exceptions
+        ]
+        return Response({'status': 'success', 'exceptions': exception_list})
+
 
     serializer = ExceptionInputSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
