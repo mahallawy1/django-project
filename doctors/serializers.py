@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from receptionist.models import Slot
+from users.models import User
 
 from .models import Doctor, DoctorException, DoctorSchedule
 
@@ -12,9 +13,50 @@ def _extract_time_range(data):
 
 
 class DoctorSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(max_length=150, write_only=True)
+    email = serializers.EmailField(write_only=True)
+    password = serializers.CharField(write_only=True, min_length=8)
+    first_name = serializers.CharField(max_length=150, write_only=True, default='')
+    last_name = serializers.CharField(max_length=150, write_only=True, default='')
+
     class Meta:
         model = Doctor
-        fields = '__all__'
+        fields = ['id', 'user_id', 'specialization', 'session_duration', 'buffer_time',
+                  'username', 'email', 'password', 'first_name', 'last_name']
+
+        read_only_fields = ['id', 'user_id']
+        write_only_fields = ['password']
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError('A user with this username already exists.')
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return value
+
+    def create(self, validated_data):
+        from django.db import transaction
+        user_fields = ('username', 'email', 'password', 'first_name', 'last_name')
+        
+        user_data = {}
+        for key in user_fields:
+            if key in validated_data:
+                user_data[key] = validated_data.pop(key)
+     
+        with transaction.atomic():
+            user = User(
+                username=user_data['username'],
+                email=user_data['email'],
+                first_name=user_data.get('first_name', ''),
+                last_name=user_data.get('last_name', ''),
+                role=User.Role.DOCTOR,
+            )
+            user.set_password(user_data['password'])
+            user.save()
+            return Doctor.objects.create(user_id=user, **validated_data)
 
 
 class DoctorScheduleSerializer(serializers.ModelSerializer):
