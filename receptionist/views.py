@@ -27,6 +27,23 @@ def _iter_dates(start_date, end_date):
         current += timedelta(days=1)
 
 
+def _get_effective_day_window(current_date, schedules_by_day, exceptions_by_date):
+    exception_item = exceptions_by_date.get(current_date)
+
+    if exception_item and exception_item.type == 'VACATION_DAY':
+        return None, None
+
+    if exception_item and exception_item.type == 'EXTRA_WORKING_DAY':
+        return exception_item.start_time, exception_item.end_time
+
+    schedule_day = (current_date.isoweekday() + 1) % 7
+    schedule_item = schedules_by_day.get(schedule_day)
+    if not schedule_item:
+        return None, None
+
+    return schedule_item.start_time, schedule_item.end_time
+
+
 def _build_day_slots(doctor, work_date, start_time, end_time):
     if start_time >= end_time:
         return []
@@ -100,23 +117,11 @@ def _generate_slots_for_range(doctor, start_date, end_date, delete_unbooked=Fals
 
         new_slots = []
         for current_date in _iter_dates(start_date, end_date):
-            exception_item = exceptions_by_date.get(current_date)
-
-            if exception_item and exception_item.type == 'VACATION_DAY':
-                continue
-
-            if exception_item and exception_item.type == 'EXTRA_WORKING_DAY':
-                day_start = exception_item.start_time
-                day_end = exception_item.end_time
-                if not day_start or not day_end:
-                    continue
-            else:
-                schedule_day = (current_date.isoweekday() + 1) % 7
-                schedule_item = schedules_by_day.get(schedule_day)
-                if not schedule_item:
-                    continue
-                day_start = schedule_item.start_time
-                day_end = schedule_item.end_time
+            day_start, day_end = _get_effective_day_window(
+                current_date,
+                schedules_by_day,
+                exceptions_by_date,
+            )
 
             if not day_start or not day_end:
                 continue
@@ -129,28 +134,57 @@ def _generate_slots_for_range(doctor, start_date, end_date, delete_unbooked=Fals
 
 
 def _ensure_doctor_slots_for_range(doctor, start_date, end_date):
-    existing_dates = set(
-        Slot.objects.filter(
+    schedules_by_day = {
+        schedule.day_of_week: schedule
+        for schedule in DoctorSchedule.objects.filter(doctor_id=doctor.id)
+    }
+    exceptions_by_date = {
+        exception.date: exception
+        for exception in DoctorException.objects.filter(
             doctor_id=doctor.id,
-            start_datetime__date__gte=start_date,
-            start_datetime__date__lte=end_date,
+            date__gte=start_date,
+            date__lte=end_date,
         )
-        .values_list('start_datetime__date', flat=True)
-        .distinct()
-    )
+    }
+
+    existing_slots_by_date = {}
+    existing_slots = Slot.objects.filter(
+        doctor_id=doctor.id,
+        start_datetime__date__gte=start_date,
+        start_datetime__date__lte=end_date,
+        is_booked=False,
+    ).order_by('start_datetime')
+    for slot in existing_slots:
+        slot_date = slot.start_datetime.date()
+        existing_slots_by_date.setdefault(slot_date, []).append(slot)
 
     generated_count = 0
     missing_dates_count = 0
     range_start = None
 
     for current_date in _iter_dates(start_date, end_date):
-        if current_date in existing_dates:
+        day_start, day_end = _get_effective_day_window(
+            current_date,
+            schedules_by_day,
+            exceptions_by_date,
+        )
+
+        expected_slots = []
+        if day_start and day_end:
+            expected_slots = _build_day_slots(doctor, current_date, day_start, day_end)
+
+        existing_day_slots = existing_slots_by_date.get(current_date, [])
+        expected_pairs = [(slot.start_datetime, slot.end_datetime) for slot in expected_slots]
+        existing_pairs = [(slot.start_datetime, slot.end_datetime) for slot in existing_day_slots]
+        needs_regen = expected_pairs != existing_pairs
+
+        if not needs_regen:
             if range_start:
                 _, created_count = _generate_slots_for_range(
                     doctor,
                     range_start,
                     current_date - timedelta(days=1),
-                    delete_unbooked=False,
+                    delete_unbooked=True,
                 )
                 generated_count += created_count
                 range_start = None
@@ -165,7 +199,7 @@ def _ensure_doctor_slots_for_range(doctor, start_date, end_date):
             doctor,
             range_start,
             end_date,
-            delete_unbooked=False,
+            delete_unbooked=True,
         )
         generated_count += created_count
 
