@@ -226,6 +226,8 @@ def list_appointments(request):
 
     appointment_list = []
     for appointment in appointments:
+        if appointment.slot is None:
+            continue
         doctor = appointment.slot.doctor
         doctor_user = doctor.user_id
         patient = appointment.patient

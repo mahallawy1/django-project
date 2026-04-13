@@ -15,6 +15,7 @@ from django.db import transaction
 from doctors.serializers import CreateAvailabilityRequestSerializer, PatchAvailabilityRequestSerializer, ExceptionInputSerializer
 from doctors.services import replace_week_schedule, patch_schedule_days, patch_single_availability, create_exceptions
 from users.permissions import IsDoctor
+from rest_framework.permissions import AllowAny
 
 
 def _get_current_doctor(request):
@@ -48,6 +49,8 @@ def get_all_doctors(request):
         {
             'id': doctor.id,
             'user_id': doctor.user_id_id,
+            'first_name': doctor.user_id.first_name,  
+            'last_name': doctor.user_id.last_name,
             'specialization': doctor.specialization,
             'email': doctor.user_id.email,
         }
@@ -281,3 +284,31 @@ def delete_doctor_exception(request, doctor_id, exception_id):
         return Response({'status': 'error', 'message': 'Exception not found'}, status=404)
     return Response({'status': 'success', 'message': 'Exception deleted successfully'})
         
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_doctor(request):
+    serializer = DoctorSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({'status': 'error', 'errors': serializer.errors}, status=400)
+
+    doctor = serializer.save()
+    user = doctor.user_id
+
+    return Response(
+        {
+            'status': 'success',
+            'doctor': {
+                'id': doctor.id,
+                'user_id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'specialization': doctor.specialization,
+                'session_duration': doctor.session_duration,
+                'buffer_time': doctor.buffer_time,
+            },
+        },
+        status=201,
+    )
