@@ -1,0 +1,8 @@
+[run]
+omit =
+    */migrations/*
+    */admin.py
+    manage.py
+    clinic_management_system/asgi.py
+    clinic_management_system/wsgi.py
+    */tests.py
