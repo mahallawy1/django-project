@@ -473,7 +473,7 @@ def today_queue(request):
             slot__doctor_id=doctor_id,
             slot__start_datetime__date=queue_date,
             status__in=[
-                Appointment.Status.SCHEDULED,
+                # Appointment.Status.SCHEDULED,
                 Appointment.Status.CONFIRMED,
                 Appointment.Status.CHECKED_IN,
             ],

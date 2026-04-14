@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from patients.models import PatientProfile
 from users.serializers import UserSerializer
-from users.permissions import IsPatient
+from users.permissions import IsPatient, IsDoctor
 from .serializers import PatientProfileSerializer, patientRegSerializer
 from django.db import transaction
 from appointments.models import Appointment
@@ -98,6 +98,16 @@ def my_appointments(request):
     appointments = Appointment.objects.filter(patient=request.user)
     serializer = AppointmentSerializer(appointments, many=True)
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsDoctor])
+def get_patient_by_id(request, patient_id):
+    profile = PatientProfile.objects.select_related('user').filter(user_id=patient_id).first()
+    if not profile:
+        return Response({'status': 'error', 'message': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+    serializer = PatientProfileSerializer(profile)
+    return Response({'status': 'success', 'patient': serializer.data})
 
 @api_view(["GET"])
 def appointment_detail(request, appointment_id):

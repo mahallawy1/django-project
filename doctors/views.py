@@ -17,6 +17,8 @@ from doctors.services import replace_week_schedule, patch_schedule_days, patch_s
 from users.permissions import IsDoctor
 from rest_framework.permissions import AllowAny
 
+from doctors.serializers import DoctorSerializer
+
 
 def _get_current_doctor(request):
     if not request.user or not request.user.is_authenticated:
