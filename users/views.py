@@ -12,6 +12,8 @@ from google.auth.transport import requests as google_requests
 from rest_framework.permissions import AllowAny
 import os
 from dotenv import load_dotenv
+from patients.serializers import patientRegSerializer
+import datetime
 
 load_dotenv()
 
@@ -22,13 +24,10 @@ class GoogleLogin(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        token = request.data.get("id_token") or request.data.get("access_token")
+        token = request.data.get("id_token")
 
         if not token:
-            return Response(
-                {"error": "id_token is required."},
-                status=400,
-            )
+            return Response({"error": "id_token is required."}, status=400)
 
         try:
             idinfo = id_token.verify_oauth2_token(
@@ -37,31 +36,32 @@ class GoogleLogin(APIView):
                 GOOGLE_CLIENT_ID,
             )
         except ValueError:
-            return Response(
-                {"error": "Invalid Google token."},
-                status=400,
-            )
+            return Response({"error": "Invalid Google token."}, status=400)
 
         email = idinfo.get("email")
-        first_name = idinfo.get("given_name", "")
-        last_name = idinfo.get("family_name", "")
-
         if not email:
-            return Response(
-                {"error": "Email not provided by Google."},
-                status=400,
+            return Response({"error": "Email not provided by Google."}, status=400)
+
+        first_name = idinfo.get("name", "").split()[0]
+        last_name = idinfo.get("name", "").split()[1]
+
+        user = User.objects.filter(email=email).first()
+        is_new = False
+
+        if not user:
+            is_new = True
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                password=None,
+                role=User.Role.PATIENT,
             )
 
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={
-                "username": email,
-                "first_name": first_name,
-                "last_name": last_name,
-            },
-        )
-
         refresh = RefreshToken.for_user(user)
+
+        has_profile = hasattr(user, 'patient_profile')
 
         return Response({
             "access": str(refresh.access_token),
@@ -71,9 +71,11 @@ class GoogleLogin(APIView):
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "role": user.role,
             },
+            "is_new": is_new,
+            "has_profile": has_profile,
         })
-
 
 class StandardPagination(PageNumberPagination):
     page_size = 10
