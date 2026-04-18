@@ -1,100 +1,279 @@
-# Clinic Management System
 
-A lightweight Django clinic appointment system for managing doctor schedules, patient bookings, check-ins, and simple consultation records.
+# 🏥 Clinic Management System
 
-## Table of Contents
-- [Objective](#objective)
-- [Roles](#roles)
-- [Required Features](#required-features)
-- [Bonus Features](#bonus-features)
-- [Technical Constraints](#technical-constraints)
+<div align="center">
 
-## Objective
+![Django](https://img.shields.io/badge/Django-6.0-green?style=for-the-badge&logo=django)
+![Angular](https://img.shields.io/badge/Angular-19-red?style=for-the-badge&logo=angular)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-blue?style=for-the-badge&logo=mysql)
+![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-3.0-38B2AC?style=for-the-badge&logo=tailwind-css)
+![DRF](https://img.shields.io/badge/DRF-3.17-ff1709?style=for-the-badge&logo=django)
+![JWT](https://img.shields.io/badge/JWT-Auth-000000?style=for-the-badge&logo=jsonwebtokens)
 
-> Build a clinic system where patients book appointments, receptionists manage scheduling, and doctors manage consultations, with correct permissions, scheduling rules, and workflows.
+**A full-stack clinic appointment management system with role-based access control, real-time queue management, and EMR-lite consultation records.**
 
-## Roles
+[Features](#-features) · [Setup](#-setup--installation) · [API Docs](#-api-documentation) · [Sample Users](#-sample-users) · [Testing](#-testing)
 
-### Patient
-- Register / login
-- View / update own profile
-- Book available appointment slots
-- View own appointments (upcoming / history)
-- Cancel (with policy) and request reschedule
-- View consultation summary after completion (read-only)
+</div>
 
-### Doctor
-- View own schedule and daily queue
-- Confirm / decline appointment requests
-- Mark checked-in / completed / no-show
-- Fill consultation record (notes, diagnosis, prescriptions, tests)
+---
 
-### Receptionist
-- Manage doctor schedules (weekly availability + exceptions)
-- Confirm bookings (if clinic policy requires)
-- Check-in patients and manage queue order
-- Reschedule on behalf of patients
-- Cannot access medical notes
+## 📑 Table of Contents
 
-### Admin
-- Manage users and roles
-- View analytics dashboard and export CSV reports
+- [Overview](#-overview)
+- [Tech Stack](#-tech-stack)
+- [Database Schema](#-database-schema)
+- [Setup & Installation](#-setup--installation)
+- [Sample Users](#-sample-users)
+- [API Documentation](#-api-documentation)
+- [Running Tests](#-running-tests)
+- [Project Structure](#-project-structure)
 
-## Required Features
+---
 
-### 1) Doctor availability & slot generation
-- Weekly schedule per doctor (day, start, end)
-- Exceptions: vacations / day-offs and one-off working days
-- Slot generation based on session duration (e.g., 15 or 30 minutes)
-- Optional buffer time before/after slots (configurable, default: 5 minutes)
+## 🔎 Overview
 
-### 2) Booking & conflict rules
-- Patients can book only available slots
-- Prevent:
-	- Double booking for the same doctor/time
-	- Overlapping appointments for the same patient
-- Enforce database-level constraints and transactional booking to avoid race conditions
+A comprehensive clinic management platform enabling:
 
-### 3) Appointment lifecycle
-- Statuses: `REQUESTED → CONFIRMED → CHECKED_IN → COMPLETED` (also `CANCELLED`, `NO_SHOW`)
-- Rules:
-	- Patients may cancel only when status is `REQUESTED` or `CONFIRMED`
-	- Doctor or receptionist can mark `NO_SHOW`
-	- `COMPLETED` requires the consultation record to be filled
+| Role | Capabilities |
+|------|-------------|
+| **Patient** | Register, book appointments, view consultation summaries |
+| **Doctor** | Manage schedule, daily queue, fill consultation records |
+| **Receptionist** | Manage doctor availability, check-in patients, manage queue |
+| **Admin** | Manage users/roles, analytics dashboard, CSV export |
 
-### 4) Rescheduling & audit trail
-- Allow reschedule requests by patients or staff
-- Keep history for each change:
-	- old datetime, new datetime, changed by, reason, timestamp
+---
 
-### 5) Queue / Check-in
-- Receptionist checks in patients
-- Doctor dashboard shows today's queue ordered by check-in time
-- Show waiting time (e.g., `now - check_in_time`)
+## 🛠 Tech Stack
 
-### 6) EMR Lite (Consultation record)
-- For `COMPLETED` appointments store:
-	- diagnosis, notes
-	- prescription items (drug, dose, duration)
-	- requested tests
-- Patients can view consultation summaries (read-only)
-- Receptionists cannot view medical notes
+### Backend
+| Technology | Purpose |
+|-----------|---------|
+| Django 6.0 | Web framework |
+| Django REST Framework 3.17 | REST API |
+| SimpleJWT | Authentication (Access + Refresh tokens) |
+| MySQL 8.0 | Database |
+| django-filter | Search & filtering |
+| django-cors-headers | CORS handling |
 
-### 7) Search & filters
-- Appointment list filters: status, date range, doctor, patient (staff only)
-- Search by appointment id or patient name (staff only)
-- Provide DRF API endpoints for appointments and slots
+### Frontend
+| Technology | Purpose |
+|-----------|---------|
+| Angular 19 | SPA framework |
+| Tailwind CSS 3 | Utility-first styling |
 
-## Bonus Features (optional)
-- Social login for patients (Facebook, Google / OAuth)
-- Waiting list with auto-fill on cancellation (hold selection for 30 minutes)
-- Payment simulation + refund policy + invoice PDF export
-- Telemedicine support (online link + file sharing)
-- Analytics dashboard (no-show rate, peak hours, revenue)
-- Unit tests with coverage (aim: > 12 tests)
 
-## Technical Constraints
-- Use Django authentication, groups and permissions
-- Prefer class-based views where reasonable
-- Enforce booking uniqueness with database constraints
-- Use transactions for booking and rescheduling operations
+---
+
+## 🗄 Database Schema
+
+### ER Diagram
+
+<img width="1770" height="923" alt="image" src="https://github.com/user-attachments/assets/314de516-5284-4d1a-be8a-46ca4ce232a9" />
+https://dbdiagram.io/d/69d9511e0f7c9ef2c0cc7ff0
+
+
+### Appointment Lifecycle (State Machine)
+
+```
+  ┌───────────┐    confirm    ┌───────────┐   check-in   ┌────────────┐   complete   ┌───────────┐
+  │schedualed │──────────────▶│ CONFIRMED │─────────────▶│ CHECKED_IN │────────────▶│ COMPLETED │
+  └───────────┘               └───────────┘              └────────────┘             └───────────┘
+       │                           │                          │
+       │  cancel                   │  cancel                  │  no-show
+       ▼                           ▼                          ▼
+  ┌───────────┐              ┌───────────┐              ┌──────────┐
+  │ CANCELLED │              │ CANCELLED │              │ NO_SHOW  │
+  └───────────┘              └───────────┘              └──────────┘
+```
+
+
+
+## 🚀 Setup & Installation
+
+### Prerequisites
+
+| Requirement | Version |
+|------------|---------|
+| Python | 3.12+ |
+| Node.js | 18+ |
+| MySQL | 8.0+ |
+| Angular CLI | 19+ |
+
+### 1️⃣ Clone the Repository
+
+```bash
+git clone https://github.com/mahallawy1/django-project.git
+cd clinic-management-system
+```
+
+### 2️⃣ Backend Setup
+
+```bash
+# Navigate to backend
+cd clinic_management_system
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 3️⃣ Database Configuration
+
+Create a MySQL database:
+
+```sql
+CREATE DATABASE clinic_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'clinic_user'@'localhost' IDENTIFIED BY 'your_password';
+GRANT ALL PRIVILEGES ON clinic_db.* TO 'clinic_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Create a `.env` file in the backend root:
+
+```env
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_HOST=
+DB_PORT=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+```
+
+### 4️⃣ Run Migrations & Seed Data
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+python manage.py createsuperuser
+
+```
+
+### 5️⃣ Start Backend Server
+
+```bash
+python manage.py runserver
+```
+
+> Backend runs at: **http://127.0.0.1:8000**
+
+### 6️⃣ Frontend Setup
+
+```bash
+# Navigate to frontend
+cd clinic_management_front
+
+# Install dependencies
+npm install
+
+# Start development server
+ng serve
+```
+
+> Frontend runs at: **http://localhost:4200**
+
+---
+
+## 👥 Sample Users
+
+Use these credentials to test each role:
+
+| Role | username | Password | Notes |
+|------|-------|----------|-------|
+| **Admin** | `admin` | `admin` | Full system access |
+| **Doctor** | `dr_handsome` | `asakaloldo` | women department |
+| **Receptionist** | `hamada` | `iti123456` | Front desk management |
+| **Patient** | `ammar` | `ammarkhaled` | Sample patient account |
+
+---
+
+## 📡 API Documentation
+
+### 📎 Full API Reference
+
+🔗 **[Notion API Documentation](https://www.notion.so/HMS-API-33d800b2c07880c59dbce76f08c614c7)**
+
+
+
+## 🧪 Running Tests
+
+```bash
+# Navigate to backend directory
+cd clinic_management_system
+
+# Run all tests
+python manage.py test
+
+# Run with verbosity
+python manage.py test -v 2
+
+# Run specific app tests
+python manage.py test appointments
+python manage.py test doctors
+python manage.py test users
+
+# Run with coverage report
+pip install coverage
+coverage run manage.py test
+coverage report -m
+coverage html  # generates htmlcov/index.html
+```
+
+### Test Coverage Screenshot
+
+<img width="687" height="648" alt="Untitled" src="https://github.com/user-attachments/assets/c29f6dd0-1275-464a-a5cd-23b6da6d410f" />
+
+![Test Coverage](docs/screenshots/test_coverage.png)
+
+---
+
+## 📂 Project Structure
+
+### Backend
+
+```
+clinic_management_system/
+├── clinic_management_system/    # Project settings & root URLs
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+├── users/                       # Authentication, roles, admin management
+│   ├── models.py               # Custom User model with roles
+│   ├── permissions.py          # Role-based permission classes
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+├── doctors/                     # Doctor profiles, schedules, slot generation
+│   ├── models.py               # DoctorProfile, WeeklySchedule, Exception, Slot
+│   ├── services.py             # Slot generation logic
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+├── patients/                    # Patient profiles,Booking,
+│   ├── models.py               # PatientProfile
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+├── appointments/                #  lifecycle, consultations
+│   ├── models.py               # Appointment, Consultation, RescheduleHistory
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+├── receptionist/                # Receptionist-specific actions
+│   ├── views.py
+│   ├── urls.py
+│   └── doctor_urls.py
+├── requirements.txt
+└── manage.py
+```
+
+
