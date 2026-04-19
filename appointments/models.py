@@ -159,13 +159,27 @@ class PaymentTransaction(models.Model):
         related_name='transactions'
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices)
-    transaction_id = models.CharField(max_length=100, blank=True, null=True, help_text="Kashier Transaction ID")
-    status = models.CharField(max_length=20, choices=TransactionStatus.choices, default=TransactionStatus.PENDING)
+    payment_method = models.CharField(
+        max_length=20, 
+        choices=PaymentMethod.choices, 
+        default=PaymentMethod.ONLINE
+    )
+    transaction_id = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True, 
+        help_text="Kashier Transaction ID"
+    )
+    kashier_order_id = models.CharField(max_length=255, null=True, blank=True)
+    status = models.CharField(
+        max_length=20, 
+        choices=TransactionStatus.choices, 
+        default=TransactionStatus.PENDING
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"TXN {self.transaction_id or self.pk} - {self.payment_method} - {self.status}"
+        return f"TXN {self.transaction_id or self.pk} - {self.invoice.id}"
 
 
 @receiver(post_save, sender=Appointment)
@@ -181,15 +195,3 @@ def create_invoice_for_appointment(sender, instance, created, **kwargs):
             status=Invoice.Status.PENDING
         )
 
-    
-class PaymentTransaction(models.Model):
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='transactions')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    transaction_id = models.CharField(max_length=100, help_text="Kashier Transaction ID")
-    payment_method = models.CharField(max_length=20, default='ONLINE')
-    status = models.CharField(max_length=20, default='SUCCESS')
-    kashier_order_id = models.CharField(max_length=255, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"TXN {self.transaction_id} for Invoice {self.invoice.id}"
