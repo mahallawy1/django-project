@@ -1,22 +1,33 @@
 import csv
+import requests
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from datetime import datetime, timedelta
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.timezone import now
+from django.urls import reverse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import status
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from django.template.loader import get_template
+from django.shortcuts import get_object_or_404
+from xhtml2pdf import pisa
+from .models import Invoice, PaymentTransaction
+import urllib.parse
+
 
 from doctors.models import Doctor
 from receptionist.models import Slot
 from users.permissions import IsDoctor, IsPatient, IsReceptionist, IsAdmin
 
-from .models import Appointment, AppointmentAudit, Consultation
-from .serializers import ConsultationSerializer
+from .models import Appointment, AppointmentAudit, Consultation, Invoice, PaymentTransaction
+from .serializers import ConsultationSerializer, InvoiceSerializer, PaymentTransactionSerializer
 
 
 class IsDoctorReceptionistAdmin(BasePermission):
@@ -579,7 +590,6 @@ def complete_appointment(request, appointment_id):
 def consultation_read(request, id):
     appointment = get_object_or_404(Appointment, pk=id)
 
-    # Patients may only see their own appointment's consultation
     if request.user.role == 'PATIENT' and appointment.patient != request.user:
         return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -606,3 +616,284 @@ def consultation_write(request, id):
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(serializer.data)
+
+
+
+def _resolve_public_base_url(request):
+    configured_base_url = getattr(settings, 'KASHIER_BASE_URL', '').strip()
+    if configured_base_url:
+        parsed_url = urllib.parse.urlparse(configured_base_url)
+        if parsed_url.scheme in ('http', 'https') and parsed_url.netloc:
+            return configured_base_url.rstrip('/')
+
+    host = request.get_host()
+    scheme = 'https' if host.endswith('ngrok-free.dev') else request.scheme
+    return f"{scheme}://{host}".rstrip('/')
+
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def payment_callback(request):
+    data = request.GET if request.method == 'GET' else request.POST
+    
+    payment_status = data.get('paymentStatus')
+    merchant_order_id = data.get('merchantOrderId')
+    transaction_id = data.get('transactionId') 
+    kashier_order_id = data.get('orderId') 
+
+    if payment_status == 'SUCCESS' and merchant_order_id:
+        try:
+            invoice_id = merchant_order_id.replace('INV-', '')
+            invoice = Invoice.objects.get(id=invoice_id)
+            
+            with transaction.atomic():
+                if invoice.status != Invoice.Status.PAID:
+                    invoice.status = Invoice.Status.PAID
+                    invoice.save()
+
+                PaymentTransaction.objects.get_or_create(
+                    transaction_id=transaction_id,
+                    defaults={
+                        'invoice': invoice,
+                        'amount': invoice.amount,
+                        'payment_method': 'ONLINE',
+                        'status': 'SUCCESS',
+                        'kashier_order_id': kashier_order_id 
+                    }
+                )
+            
+            print(f"Success: Invoice {invoice_id} paid. OrderID: {kashier_order_id}")
+            return HttpResponse(f"""
+                <h1>Payment Successful</h1>
+                <p>Transaction ID: {transaction_id}</p>
+                <p><a href='/appointments/invoice/{invoice.id}/pdf/'>Click here to download your Invoice (PDF)</a></p>
+                <br>
+                <a href='/'>Back to Website</a>
+            """)
+            
+        except Invoice.DoesNotExist:
+            print(f"Error: Invoice {merchant_order_id} not found in database")
+            return HttpResponse("<h1>Payment Error</h1><p>Invoice not found.</p><a href='/'>Back</a>")
+    
+    print(f"Payment Failed or Cancelled. Status: {payment_status}")
+    return HttpResponse("<h1>Payment Failed</h1><a href='/'>Back</a>")
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def process_payment(request, invoice_id):
+    invoice = get_object_or_404(Invoice, id=invoice_id)
+    method = request.data.get('method')
+
+    if invoice.status == Invoice.Status.PAID:
+        return Response({'error': 'Invoice already paid'}, status=400)
+
+    if method == 'CASH':
+        with transaction.atomic():
+            PaymentTransaction.objects.create(
+                invoice=invoice,
+                amount=invoice.amount,
+                payment_method='CASH',
+                status='SUCCESS'
+            )
+            invoice.status = Invoice.Status.PAID
+            invoice.save()
+        return Response({'status': 'success', 'message': 'Cash payment recorded successfully'})
+
+    elif method == 'ONLINE':
+        order_id = f"INV-{invoice.id}"
+        amount = "{:.2f}".format(float(invoice.amount))
+        currency = "EGP"
+
+        base_url = _resolve_public_base_url(request)
+        redirect_url = f"{base_url}/appointments/payment/callback/"
+
+        api_url = "https://test-api.kashier.io/v3/payment/sessions"
+        
+        expiry_time = now() + timedelta(hours=1)
+        expire_at_str = expiry_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+        payload = {
+            "merchantId": settings.KASHIER_MERCHANT_ID,
+            "order": order_id,
+            "amount": amount,
+            "currency": currency,
+            "merchantRedirect": redirect_url,
+            "expireAt": expire_at_str,
+            "display": "ar",
+            "type": "one-time",
+            "customer": {
+            "email": getattr(invoice.appointment.patient, 'email', 'customer@example.com'),
+            "reference": str(invoice.appointment.patient.id)
+        }
+        }
+
+        headers = {
+            "Authorization": settings.KASHIER_SECRET_KEY.strip(),
+            "api-key": getattr(settings, 'KASHIER_API_KEY', '').strip(), 
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(api_url, json=payload, headers=headers)
+            response_data = response.json()
+            
+            if response.status_code in [200, 201] and "sessionUrl" in response_data:
+                return Response({
+                    'status': 'success',
+                    'payment_url': response_data['sessionUrl'],
+                    'order_id': order_id,
+                    'merchant_redirect_url': redirect_url,
+                })
+            else:
+                return Response({
+                    'error': 'Kashier API Error',
+                    'details': response_data
+                }, status=400)
+                
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+@csrf_exempt
+def kashier_webhook(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            event_type = data.get('event')
+            payload = data.get('data', {})
+
+            if event_type == 'payment_status' and payload.get('status') == 'SUCCESS':
+                merchant_order_id = payload.get('merchantOrderId')
+                transaction_id = payload.get('transactionId')
+                
+                if merchant_order_id:
+                    invoice_id = merchant_order_id.replace('INV-', '')
+                    try:
+                        invoice = Invoice.objects.get(id=invoice_id)
+                        
+                        with transaction.atomic():
+                            if invoice.status != Invoice.Status.PAID:
+                                invoice.status = Invoice.Status.PAID
+                                invoice.save()
+
+                            PaymentTransaction.objects.get_or_create(
+                                transaction_id=transaction_id,
+                                defaults={
+                                    'invoice': invoice,
+                                    'amount': invoice.amount,
+                                    'payment_method': 'ONLINE',
+                                    'status': 'SUCCESS'
+                                }
+                            )
+                        print(f"Webhook: DB updated for Order {merchant_order_id}")
+                    except Invoice.DoesNotExist:
+                        pass
+
+            return HttpResponse(status=200)
+        except Exception as e:
+            return HttpResponse(status=400)
+    return HttpResponse(status=405)
+
+@api_view(['POST'])
+@permission_classes([IsAdmin])
+def refund_payment(request, invoice_id):
+
+    invoice = get_object_or_404(Invoice, id=invoice_id)
+    
+    if invoice.status != Invoice.Status.PAID:
+        return Response({'error': 'Refund failed. Only PAID invoices can be refunded.'}, status=400)
+
+    last_txn = PaymentTransaction.objects.filter(invoice=invoice, status='SUCCESS').last()
+    
+    if not last_txn:
+        return Response({'error': 'No successful transaction record found for this invoice.'}, status=404)
+
+    target_id = last_txn.kashier_order_id or last_txn.transaction_id
+    
+    if not target_id:
+        return Response({'error': 'No Kashier Order ID or Transaction ID found to process refund.'}, status=400)
+
+    api_url = f"https://test-fep.kashier.io/v3/orders/{target_id}"
+    
+    headers = {
+        "Authorization": settings.KASHIER_SECRET_KEY.strip(),
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "apiOperation": "REFUND",
+        "reason": "Customer requested refund",
+        "transaction": {
+            "amount": float(invoice.amount)
+        }
+    }
+
+    try:
+        response = requests.put(api_url, json=payload, headers=headers)
+        
+        if not response.text:
+            return Response({'error': 'Empty response from Kashier'}, status=500)
+
+        response_data = response.json()
+
+        if response.status_code in [200, 201] and response_data.get('status') == 'SUCCESS':
+            
+            with transaction.atomic():
+                invoice.status = Invoice.Status.CANCELLED
+                invoice.save()
+                
+                new_txn_id = response_data.get('response', {}).get('transactionId', f'REF-TX-{target_id}')
+                PaymentTransaction.objects.create(
+                    invoice=invoice,
+                    amount=invoice.amount,
+                    payment_method='ONLINE',
+                    transaction_id=new_txn_id,
+                    kashier_order_id=target_id,
+                    status='SUCCESS'
+                )
+            
+            return Response({
+                'status': 'success', 
+                'message': 'Payment refunded successfully via Kashier.'
+            })
+        else:
+            return Response({
+                'error': 'Kashier API rejected the refund.',
+                'details': response_data
+            }, status=response.status_code)
+
+    except Exception as e:
+        return Response({'error': f"Internal Server Error: {str(e)}"}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated]) 
+def download_invoice_pdf(request, invoice_id):
+    invoice = get_object_or_404(Invoice, id=invoice_id)
+    user = request.user
+
+    if hasattr(user, 'role') and user.role == 'PATIENT':
+        if invoice.appointment.patient.id != user.id:
+            return HttpResponseForbidden("Access Denied: You can only view your own invoices.")
+    elif hasattr(user, 'role') and user.role == 'DOCTOR':
+        if invoice.appointment.slot.doctor.user != user:
+            return HttpResponseForbidden("Access Denied: This invoice belongs to another doctor's patient.")
+
+    template_path = 'invoices/invoice_template.html'
+    context = {
+        'invoice': invoice,
+        'today': datetime.now(),
+    }
+    
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="Invoice_{invoice.id}.pdf"'
+    
+    template = get_template(template_path)
+    html = template.render(context)
+    pisa_status = pisa.CreatePDF(html, dest=response)
+    
+    if pisa_status.err:
+        return HttpResponse('Error generating PDF', status=500)
+        
+    return response

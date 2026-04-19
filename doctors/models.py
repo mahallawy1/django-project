@@ -4,6 +4,7 @@ from django.db import models
 class Doctor(models.Model):
     user_id = models.ForeignKey('users.User', on_delete=models.CASCADE)
     specialization = models.CharField(max_length=100)
+    consultation_fee = models.DecimalField(max_digits=10, decimal_places=2, default=200.00)
     session_duration = models.IntegerField(choices=[(15, '15 minutes'), (30, '30 minutes')])
     buffer_time = models.IntegerField(choices=[(5, '5 minutes'), (10, '10 minutes')])
 
