@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { 
+            font-family: Helvetica, Arial, sans-serif; 
+            color: #374151; 
+        }
+        
+        /* Header Section */
+        .header-table { 
+            width: 100%; 
+            border-bottom: 1px solid #D1D5DB; 
+            padding-bottom: 20px; 
+            margin-bottom: 40px; 
+        }
+        .brand-name { 
+            color: #0A1931; 
+            font-size: 24px; 
+            font-weight: bold; 
+        }
+        .brand-icon { color: #1D4ED8; }
+        .brand-subtitle { 
+            color: #047857; 
+            font-size: 10px; 
+            letter-spacing: 1.5px; 
+            text-transform: uppercase; 
+        }
+        .invoice-title { 
+            text-align: right; 
+            font-size: 20px; 
+            color: #111827; 
+            font-weight: bold;
+        }
+
+        /* Patient & Doctor Section (Side by Side) */
+        .info-table {
+            width: 100%;
+            margin-bottom: 40px;
+        }
+        .info-label { 
+            color: #6B7280; 
+            font-size: 11px; 
+            text-transform: uppercase; 
+            margin-bottom: 4px;
+        }
+        .info-value { 
+            color: #111827; 
+            font-weight: bold; 
+            font-size: 15px; 
+        }
+
+        /* Items Table */
+        table.items { 
+            width: 100%; 
+            border-collapse: collapse; 
+        }
+        table.items th { 
+            background-color: #E5E7EB; /* لون أغمق للهيدر */
+            color: #374151; 
+            text-align: left; 
+            padding: 12px; 
+            font-size: 12px; 
+            text-transform: uppercase;
+            border-bottom: 2px solid #D1D5DB;
+        }
+        table.items td { 
+            padding: 15px 12px; 
+            border-bottom: 1px solid #E5E7EB; 
+            color: #111827; 
+            font-size: 14px; 
+        }
+
+        /* Total Section */
+        .total-container { 
+            margin-top: 40px; 
+            text-align: right;
+            border-top: 1px solid #D1D5DB;
+            padding-top: 20px;
+        }
+        .total-amount { 
+            font-weight: bold; 
+            font-size: 1.4em; 
+            color: #0F766E; 
+        }
+
+        @page { size: a4; margin: 2cm;}
+    </style>
+</head>
+<body>
+
+    <table class="header-table">
+        <tr>
+            <td style="width: 60%;">
+                <div class="brand-name"><span class="brand-icon">&#9632;</span> Clinical Curator</div>
+                <div class="brand-subtitle">Clinical Workspace</div>
+            </td>
+            <td style="width: 40%; text-align: right; vertical-align: bottom;">
+                <div class="invoice-title">Receipt / Invoice</div>
+                <div style="font-size: 11px; color: #6B7280;">#{{ invoice.id }} | {{ today|date:"Y-m-d" }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <table class="info-table">
+        <tr>
+            <td style="width: 50%; vertical-align: top;">
+                <div class="info-label">Patient Name</div>
+                <div class="info-value">
+                    {{ invoice.appointment.patient.get_full_name|default:invoice.appointment.patient.username|default:invoice.appointment.patient }}
+                </div>
+            </td>
+            <td style="width: 50%; text-align: right; vertical-align: top;">
+                <div class="info-label">Consulting Doctor</div>
+                <div class="info-value">
+                    Dr. 
+                    {% if invoice.appointment.slot.doctor.user %}
+                        {{ invoice.appointment.slot.doctor.user.get_full_name|default:invoice.appointment.slot.doctor.user.username }}
+                    {% elif invoice.appointment.slot.doctor.user_id %}
+                        {{ invoice.appointment.slot.doctor.user_id.get_full_name|default:invoice.appointment.slot.doctor.user_id.username }}
+                    {% else %}
+                        {{ invoice.appointment.slot.doctor }}
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th style="width: 70%;">Description</th>
+                <th style="width: 30%; text-align: right;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Medical Consultation Fee</td>
+                <td style="text-align: right; font-weight: bold;">{{ invoice.amount }} EGP</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="total-container">
+        <span style="color: #6B7280; font-size: 14px;">Total Paid:</span>
+        <span class="total-amount">{{ invoice.amount }} EGP</span>
+    </div>
+
+</body>
+</html>

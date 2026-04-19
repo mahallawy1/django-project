@@ -1,4 +1,5 @@
 from django.urls import path
+from . import views
 
 from .views import (
     analytics_export,
@@ -36,4 +37,9 @@ urlpatterns = [
     path('<int:appointment_id>/reschedule-history', reschedule_history, name='reschedule_history'),
     path('<int:id>/consultation', consultation_read, name='consultation_read'),
     path('<int:id>/consultation/write', consultation_write, name='consultation_write'),
+    path('invoice/<int:invoice_id>/pay/', views.process_payment, name='process_payment'),
+    path('invoice/<int:invoice_id>/refund/', views.refund_payment, name='refund_payment'),
+    path('payment/callback/', views.payment_callback, name='payment_callback'),
+    path('payment/webhook/', views.kashier_webhook, name='kashier_webhook'),
+    path('invoice/<int:invoice_id>/pdf/', views.download_invoice_pdf, name='download_invoice_pdf'),
 ]

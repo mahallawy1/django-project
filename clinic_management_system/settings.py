@@ -30,8 +30,9 @@ SECRET_KEY = 'django-insecure-e1k^_w&$*&vt*5j7j@n0v--3z9oril6q1)-pin8)b2wnbf-qk3
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+NGROK_DOMAIN = os.getenv('NGROK_DOMAIN', 'chrome-cosmos-occupancy.ngrok-free.dev')
+ALLOWED_HOSTS = [NGROK_DOMAIN, '127.0.0.1', 'localhost']
+CSRF_TRUSTED_ORIGINS = [f'https://{NGROK_DOMAIN}']
 
 # Application definition
 
@@ -98,19 +99,18 @@ WSGI_APPLICATION = 'clinic_management_system.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
-if os.getenv('DB_NAME') and os.getenv('DB_USER'):
+if os.getenv('DB_NAME'):
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
             'NAME': os.getenv('DB_NAME'),
             'USER': os.getenv('DB_USER'),
-            'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '3306'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
         }
     }
 else:
-    # Fallback for local development when MySQL env vars are not configured.
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -179,10 +179,14 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True 
+
+KASHIER_MERCHANT_ID = os.getenv('KASHIER_MERCHANT_ID')
+KASHIER_API_KEY = os.getenv('KASHIER_API_KEY')
+KASHIER_SECRET_KEY = os.getenv('KASHIER_SECRET_KEY')
+KASHIER_BASE_URL = os.getenv('KASHIER_BASE_URL')
 
 SITE_ID = 1
-
 ACCOUNT_EMAIL_VERIFICATION = 'none' 
 
 REST_AUTH = {

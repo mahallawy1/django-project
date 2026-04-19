@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Appointment(models.Model):
@@ -26,7 +28,7 @@ class Appointment(models.Model):
         on_delete=models.PROTECT,
         related_name='appointment',
         null=True,
-    blank=True,
+        blank=True,
     )
     patient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -35,14 +37,13 @@ class Appointment(models.Model):
         limit_choices_to={'role': 'PATIENT'},
     )
 
-    class Meta:
-       """  constraints = [
-            models.UniqueConstraint(
-                fields=['slot'],
-                name='unique_slot',
-            )
-        ] """
-
+    # class Meta:
+    #     constraints = [
+    #         models.UniqueConstraint(
+    #             fields=['slot'],
+    #             name='unique_slot',
+    #         )
+    #     ]
 
     def __str__(self):
         return f"Appointment #{self.pk} — {self.patient} with Dr. {self.slot.doctor} at {self.slot.start_datetime}"
@@ -77,7 +78,6 @@ class AppointmentAudit(models.Model):
             raise ValidationError(
                 {'new_start_datetime': 'New start datetime must differ from old start datetime.'}
             )
-
 
 
 class Consultation(models.Model):
@@ -138,3 +138,60 @@ class Invoice(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
+
+    def __str__(self):
+        return f"Invoice #{self.pk} - {self.appointment.patient} - {self.status}"
+
+
+class PaymentTransaction(models.Model):
+    class PaymentMethod(models.TextChoices):
+        CASH = 'CASH', 'Cash'
+        ONLINE = 'ONLINE', 'Online'
+        
+    class TransactionStatus(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        SUCCESS = 'SUCCESS', 'Success'
+        FAILED = 'FAILED', 'Failed'
+
+    invoice = models.ForeignKey(
+        Invoice, 
+        on_delete=models.CASCADE, 
+        related_name='transactions'
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = models.CharField(
+        max_length=20, 
+        choices=PaymentMethod.choices, 
+        default=PaymentMethod.ONLINE
+    )
+    transaction_id = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True, 
+        help_text="Kashier Transaction ID"
+    )
+    kashier_order_id = models.CharField(max_length=255, null=True, blank=True)
+    status = models.CharField(
+        max_length=20, 
+        choices=TransactionStatus.choices, 
+        default=TransactionStatus.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"TXN {self.transaction_id or self.pk} - {self.invoice.id}"
+
+
+@receiver(post_save, sender=Appointment)
+def create_invoice_for_appointment(sender, instance, created, **kwargs):
+    if created:
+        price = 200.00
+        if instance.slot and getattr(instance.slot, 'doctor', None):
+            price = getattr(instance.slot.doctor, 'consultation_fee', 200.00)
+        
+        Invoice.objects.create(
+            appointment=instance,
+            amount=price,
+            status=Invoice.Status.PENDING
+        )
+

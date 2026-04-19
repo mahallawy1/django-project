@@ -1,12 +1,17 @@
 from rest_framework import serializers
-
 from .models import (
     Appointment,
     AppointmentAudit,
     Consultation,
     Invoice,
+    PaymentTransaction,
 )
 
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentTransaction
+        fields = ['id', 'invoice', 'amount', 'payment_method', 'transaction_id', 'status', 'created_at']
+        read_only_fields = ['transaction_id', 'status']
 
 class AppointmentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -15,7 +20,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def validate(self, data):
-        # Support partial updates by falling back to instance values
         start = data.get('start_datetime', getattr(self.instance, 'start_datetime', None))
         end = data.get('end_datetime', getattr(self.instance, 'end_datetime', None))
 
@@ -30,7 +34,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 {'check_in_time': 'Check-in time cannot be before appointment start.'}
             )
         return data
-
 
 class AppointmentAuditSerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,18 +50,18 @@ class AppointmentAuditSerializer(serializers.ModelSerializer):
             )
         return data
 
-
 class ConsultationSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Consultation
         fields = '__all__'
 
-
 class InvoiceSerializer(serializers.ModelSerializer):
+    transactions = PaymentTransactionSerializer(many=True, read_only=True)
+    patient_name = serializers.CharField(source='appointment.patient.get_full_name', read_only=True)
+
     class Meta:
         model = Invoice
-        fields = '__all__'
+        fields = ['id', 'appointment', 'patient_name', 'amount', 'status', 'transactions']
 
     def validate_amount(self, value):
         if value < 0:
