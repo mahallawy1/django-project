@@ -8,4 +8,5 @@ urlpatterns = [
     path('appointments/me', views.my_appointments),
     path('appointments/<int:appointment_id>', views.appointment_detail),
     path('<int:patient_id>', views.get_patient_by_id),
+    path('complete-profile/', views.completePatientProfile, name='complete_profile'),
 ]

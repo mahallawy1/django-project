@@ -1,4 +1,3 @@
-from django.contrib.auth.models import Group
 from users.models import User
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -7,7 +6,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 class UserSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = User
-        fields = ["url", "username", "email", "groups", "role", "first_name", "last_name", "is_active", "password"]
+        fields = ["url", "username", "email", "role", "first_name", "last_name", "is_active", "password"]
         extra_kwargs = {"password": {"write_only": True}}
         
     def create(self, validated_data):
@@ -21,12 +20,6 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
         user.set_password(validated_data["password"])
         user.save()
         return user
-
-
-class GroupSerializer(serializers.HyperlinkedModelSerializer):
-    class Meta:
-        model = Group
-        fields = ["url", "name"]
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

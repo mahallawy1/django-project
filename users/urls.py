@@ -11,11 +11,11 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 users_router = routers.DefaultRouter()
 users_router.register(r"users", views.UserViewSet)
-users_router.register(r"groups", views.GroupViewSet)
 
 urlpatterns = [
     path("", include(users_router.urls)),
     path('auth/login', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/logout', views.LogoutView.as_view(), name='logout'),
+    path('auth/google/', views.GoogleLogin.as_view(), name='google_login'),
 ]

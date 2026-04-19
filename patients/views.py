@@ -11,6 +11,7 @@ from django.db import transaction
 from appointments.models import Appointment
 from appointments.serializers import AppointmentSerializer
 from receptionist.models import Slot
+from .serializers import CompleteProfileSerializer
 # Create your views here.
 # sign up for pationt
 @api_view(["POST"])
@@ -122,3 +123,20 @@ def appointment_detail(request, appointment_id):
         )
     serializer = AppointmentSerializer(appointment)
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsPatient])
+def completePatientProfile(request):
+    if hasattr(request.user, 'patient_profile'):
+        return Response(
+            {"error": "Profile already exists."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    serializer = CompleteProfileSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save(user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

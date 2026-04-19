@@ -55,3 +55,20 @@ class patientRegSerializer(serializers.Serializer):
             "last_name": instance.last_name,
             "profile": PatientProfileSerializer(profile).data,
         }
+
+
+class CompleteProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PatientProfile
+        fields = [
+            "date_of_birth",
+            "gender",
+            "phone_number",
+            "height",
+            "weight",
+            "blood_type",
+            "allergies",
+        ]
+
+    def create(self, validated_data):
+        return PatientProfile.objects.create(**validated_data)
